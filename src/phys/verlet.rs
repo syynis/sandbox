@@ -62,7 +62,7 @@ pub fn update_points(
     phys_settings: Res<PhysSettings>,
 ) {
     let gravity = phys_settings.gravity.acceleration() * time.delta_seconds();
-    let friction = 0.98;
+    let friction = 0.998;
     for (mut transform, mut point) in points_query.iter_mut() {
         update_point(&mut transform, &mut point, gravity, friction);
     }
