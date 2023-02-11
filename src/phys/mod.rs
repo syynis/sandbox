@@ -6,6 +6,7 @@ use self::{
 };
 
 pub mod movement;
+pub mod spatial;
 pub mod verlet;
 
 pub enum Gravity {
