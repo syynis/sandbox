@@ -32,24 +32,19 @@ type Clue = u8;
 type Clues = Vec<Clue>;
 
 #[derive(Debug)]
-pub struct Nonogram<const WIDTH: usize, const HEIGHT: usize>
-where
-    [Cell; WIDTH * HEIGHT]: Sized,
-{
-    pub cells: [Cell; WIDTH * HEIGHT],
+pub struct Nonogram {
+    pub cells: Vec<Cell>,
+    pub size: (usize, usize),
     pub horizontal_clues: Vec<(usize, Clues)>,
     pub vertical_clues: Vec<(usize, Clues)>,
 }
 
-impl<const WIDTH: usize, const HEIGHT: usize> Display for Nonogram<WIDTH, HEIGHT>
-where
-    [Cell; WIDTH * HEIGHT]: Sized,
-{
+impl Display for Nonogram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = String::new();
-
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        let (width, height) = self.size;
+        for y in 0..height {
+            for x in 0..width {
                 s.push(self.get((x, y)).to_char());
                 s.push(' ');
             }
@@ -69,7 +64,7 @@ where
             .map_or(0, |x| x.len());
 
         for l in 0..largest_clue {
-            for x in 0..WIDTH {
+            for x in 0..width {
                 if let Some((_, clue)) = self.vertical_clues.iter().find(|(pos, _)| *pos == x) {
                     s.push(from_digit(clue[l] as u32, 10).unwrap());
                     s.push(' ');
@@ -84,44 +79,47 @@ where
     }
 }
 
-impl<const WIDTH: usize, const HEIGHT: usize> Nonogram<WIDTH, HEIGHT>
-where
-    [Cell; WIDTH * HEIGHT]: Sized,
-{
+impl Nonogram {
     // TODO get rid of unwraps
-
-    pub fn new(horizontal_clues: Vec<(usize, Clues)>, vertical_clues: Vec<(usize, Clues)>) -> Self {
+    pub fn new(
+        size: (usize, usize),
+        horizontal_clues: Vec<(usize, Clues)>,
+        vertical_clues: Vec<(usize, Clues)>,
+    ) -> Self {
+        let (width, height) = size;
         Self {
-            cells: [Cell::default(); WIDTH * HEIGHT],
+            cells: vec![Cell::default(); width * height],
+            size,
             horizontal_clues,
             vertical_clues,
         }
     }
 
-    fn pos_idx(pos: (usize, usize)) -> usize {
-        pos.1 * WIDTH + pos.0
+    fn pos_idx(&self, pos: (usize, usize)) -> usize {
+        let width = self.size.0;
+        pos.1 * width + pos.0
     }
 
     pub fn get(&self, pos: (usize, usize)) -> &Cell {
-        self.cells.get(Self::pos_idx(pos)).unwrap()
+        self.cells.get(self.pos_idx(pos)).unwrap()
     }
 
     pub fn set(&mut self, pos: (usize, usize), cell: Cell) {
-        self.cells
-            .get_mut(Self::pos_idx(pos))
-            .map(|c| core::mem::replace(c, cell));
+        let idx = self.pos_idx(pos);
+        self.cells.get_mut(idx).map(|c| core::mem::replace(c, cell));
     }
 
     pub fn is_valid(&self) -> bool {
-        let mut transpose = [Cell::default(); WIDTH * HEIGHT];
+        let (width, height) = self.size;
+        let mut transpose = vec![Cell::default(); width * height];
         Self::transpose(&self, &mut transpose);
 
         self.horizontal_clues.iter().all(|(row, clues)| {
-            let offset = row * WIDTH;
-            Self::verify_line(self.cells.get(offset..offset + WIDTH).unwrap(), clues)
+            let offset = row * width;
+            Self::verify_line(self.cells.get(offset..offset + width).unwrap(), clues)
         }) && self.vertical_clues.iter().all(|(col, clues)| {
-            let offset = col * HEIGHT;
-            Self::verify_line(transpose.get(offset..offset + HEIGHT).unwrap(), clues)
+            let offset = col * height;
+            Self::verify_line(transpose.get(offset..offset + height).unwrap(), clues)
         })
     }
 
@@ -134,11 +132,12 @@ where
     }
 
     fn transpose(&self, output: &mut [Cell]) {
-        for x in 0..WIDTH {
-            for y in 0..HEIGHT {
-                let idx = x * HEIGHT + y;
+        let (width, height) = self.size;
+        for x in 0..width {
+            for y in 0..height {
+                let idx = x * height + y;
 
-                *output.get_mut(idx).unwrap() = *self.cells.get(Self::pos_idx((x, y))).unwrap();
+                *output.get_mut(idx).unwrap() = *self.cells.get(self.pos_idx((x, y))).unwrap();
             }
         }
     }
