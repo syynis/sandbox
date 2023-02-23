@@ -1,6 +1,17 @@
 use bevy::prelude::*;
 
-#[derive(Default, Resource, Deref, DerefMut)]
+pub struct InputPlugin;
+
+impl Plugin for InputPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(CursorPos::default());
+        app.add_system(update_cursor_pos);
+        app.register_type::<CursorPos>();
+    }
+}
+
+#[derive(Default, Resource, Deref, DerefMut, Reflect)]
+#[reflect(Resource)]
 pub struct CursorPos(pub Vec2);
 
 pub fn update_cursor_pos(

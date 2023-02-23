@@ -31,7 +31,7 @@ impl Cell {
 type Clue = u8;
 type Clues = Vec<Clue>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Nonogram {
     pub cells: Vec<Cell>,
     pub size: (usize, usize),
