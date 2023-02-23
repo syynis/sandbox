@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 
+mod placement;
+mod serialization;
+
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
