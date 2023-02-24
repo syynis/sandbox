@@ -1,8 +1,10 @@
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 
-mod placement;
-mod serialization;
+use self::placement::TileUpdateEvent;
+
+pub mod placement;
+pub mod serialization;
 
 pub struct LevelPlugin;
 
@@ -10,13 +12,14 @@ impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(TilemapPlugin);
         app.add_startup_system(spawn_level);
+        app.add_event::<TileUpdateEvent>();
     }
 }
 
 fn spawn_level(mut cmds: Commands, assets_server: Res<AssetServer>) {
     let tiles: Handle<Image> = assets_server.load("tiles.png");
 
-    let map_size = TilemapSize { x: 64, y: 64 };
+    let map_size = TilemapSize { x: 16, y: 16 };
     let mut tile_storage = TileStorage::empty(map_size);
     let tilemap_entity = cmds.spawn_empty().id();
 
@@ -31,7 +34,7 @@ fn spawn_level(mut cmds: Commands, assets_server: Res<AssetServer>) {
         storage: tile_storage,
         texture: TilemapTexture::Single(tiles),
         tile_size,
-        transform: get_tilemap_center_transform(&map_size, &grid_size, &map_type, 0.0),
+        //transform: get_tilemap_center_transform(&map_size, &grid_size, &map_type, 0.0),
         ..default()
     });
 }

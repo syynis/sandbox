@@ -5,9 +5,14 @@ use bevy_ecs_tilemap::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
+use bevy_rapier2d::prelude::*;
 use sandbox::{
     input::{update_cursor_pos, CursorPos, InputPlugin},
-    level::{from_world_pos, world_to_tile_pos, LevelPlugin},
+    level::{
+        from_world_pos,
+        placement::{StorageAccess, TilePlacer},
+        world_to_tile_pos, LevelPlugin,
+    },
     nono::{Cell, Nonogram},
 };
 
@@ -18,17 +23,22 @@ fn main() {
         .add_plugin(PanCamPlugin::default())
         .add_plugin(WorldInspectorPlugin)
         .add_plugin(DebugLinesPlugin::default())
-        .add_plugin(InputPlugin);
+        .add_plugin(InputPlugin)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(16.0))
+        .add_plugin(RapierDebugRenderPlugin::default());
 
     app.register_type::<CursorPos>();
     app.insert_resource(ClearColor(Color::WHITE));
-    app.insert_resource(TileCursor::default());
-    app.add_system(update_tile_cursor);
+    app.insert_resource(TileCursor::default())
+        .add_system(update_tile_cursor);
     app.add_startup_system(setup);
     app.add_startup_system(spawn_nonogram);
-    app.add_system(debug_render_nonogram)
+    app.add_system(setup_collider.after("tiles"))
+        .add_system(setup_tiles.label("tiles"))
+        .add_system(debug_render_nonogram)
         .add_system(toggle_edit)
-        .add_system(edit_nonogram);
+        .add_system(edit_nonogram)
+        .add_system(center_camera_editing);
 
     app.run();
 }
@@ -42,6 +52,31 @@ fn setup(mut cmds: Commands, assets_server: Res<AssetServer>) {
             ..default()
         },
     ));
+}
+
+fn setup_tiles(mut tile_placer: TilePlacer, mut once: Local<bool>) {
+    if !(*once) {
+        for x in 10..16u32 {
+            let tile_pos = TilePos { x, y: 0 };
+            tile_placer.replace(&tile_pos, TileTextureIndex(0));
+        }
+        *once = true
+    }
+}
+
+fn setup_collider(mut cmds: Commands, tiles_q: Query<(Entity, &TilePos), Added<TilePos>>) {
+    tiles_q.for_each(|(entity, tile_pos)| {
+        let tile_center =
+            tile_pos.center_in_world(&TilemapGridSize { x: 16., y: 16. }, &TilemapType::Square);
+
+        cmds.entity(entity).insert((
+            Collider::cuboid(8., 8.),
+            TransformBundle {
+                local: Transform::from_xyz(tile_center.x, tile_center.y, 0.),
+                ..default()
+            },
+        ));
+    });
 }
 
 #[derive(Resource, Default, Deref, DerefMut)]
@@ -78,10 +113,24 @@ fn spawn_nonogram(mut cmds: Commands) {
 
 fn example_nonogram() -> Nonogram {
     Nonogram::new(
-        (9, 9),
-        vec![(0, vec![3]), (2, vec![3]), (5, vec![3]), (8, vec![3])],
-        vec![(0, vec![3]), (2, vec![3]), (5, vec![3]), (8, vec![3])],
+        (10, 10),
+        vec![(0, vec![3]), (3, vec![3]), (6, vec![3]), (9, vec![3])],
+        vec![(0, vec![3]), (3, vec![3]), (6, vec![3]), (9, vec![3])],
     )
+}
+
+fn center_camera_editing(
+    nonogram_editing_q: Query<&Transform, (With<EditableNonogram>, With<Editing>)>,
+    mut camera_q: Query<(&Camera, &mut OrthographicProjection, &mut Transform), Without<Editing>>,
+) {
+    if let Some(nonogram_transform) = nonogram_editing_q.get_single().ok() {
+        if let Some((camera, mut proj, mut camera_transform)) = camera_q.get_single_mut().ok() {
+            camera_transform.translation = nonogram_transform
+                .translation
+                .truncate()
+                .extend(camera_transform.translation.z);
+        }
+    }
 }
 
 fn toggle_edit(
@@ -120,16 +169,13 @@ fn toggle_edit(
 }
 
 fn edit_nonogram(
-    mut cmds: Commands,
+    mut tile_placer: TilePlacer,
     mut nonogram_q: Query<(Entity, &mut EditableNonogram, &Transform), With<Editing>>,
     cursor: Res<CursorPos>,
     mouse: Res<Input<MouseButton>>,
     keys: Res<Input<KeyCode>>,
     tile_cursor: Res<TileCursor>,
-    mut tile_storage_q: Query<(Entity, &Transform, &TilemapSize, &mut TileStorage)>,
 ) {
-    let (tilemap_entity, map_transform, map_size, mut tile_storage) =
-        tile_storage_q.get_single_mut().unwrap();
     for (nonogram_entity, mut nonogram, transform) in nonogram_q.iter_mut() {
         let (width_orig, height_orig) = nonogram.size;
         let (width, height) = (16. * width_orig as f32, 16. * height_orig as f32);
@@ -137,17 +183,9 @@ fn edit_nonogram(
         if (x..x + width).contains(&cursor.x) && (y..y + height).contains(&cursor.y) {
             if mouse.just_pressed(MouseButton::Left) {
                 if let Some(tile_pos) = **tile_cursor {
-                    if tile_storage.get(&tile_pos).is_none() {
-                        tile_storage.set(
-                            &tile_pos,
-                            cmds.spawn(TileBundle {
-                                position: tile_pos,
-                                tilemap_id: TilemapId(tilemap_entity),
-                                ..default()
-                            })
-                            .id(),
-                        );
-                    }
+                    tile_placer.try_place(&tile_pos, TileTextureIndex(0));
+                    let (map_transform, map_size) = tile_placer.storage.transform_size();
+                    // TODO precompute this
                     let nonogram_origin = world_to_tile_pos(
                         transform.translation.truncate(),
                         &map_transform,
@@ -165,10 +203,9 @@ fn edit_nonogram(
 
             if mouse.just_pressed(MouseButton::Right) {
                 if let Some(tile_pos) = **tile_cursor {
-                    if let Some(tile) = tile_storage.get(&tile_pos) {
-                        cmds.entity(tile).despawn_recursive();
-                        tile_storage.remove(&tile_pos);
-                    }
+                    tile_placer.remove(&tile_pos);
+
+                    let (map_transform, map_size) = tile_placer.storage.transform_size();
                     let nonogram_origin = world_to_tile_pos(
                         transform.translation.truncate(),
                         &map_transform,
@@ -192,6 +229,7 @@ fn debug_render_nonogram(
     mut lines: ResMut<DebugLines>,
     nonogram_q: Query<(&EditableNonogram, &Transform)>,
     asset_server: Res<AssetServer>,
+    mut once: Local<bool>,
 ) {
     for (nonogram, transform) in nonogram_q.iter() {
         let (width, height) = nonogram.size;
@@ -211,44 +249,47 @@ fn debug_render_nonogram(
             color: Color::BLACK,
         };
 
-        // Draw horizontal_clues
-        nonogram.horizontal_clues.iter().for_each(|(idx, clues)| {
-            let height = *idx as f32 * 16. + 8.;
-            for (clue_idx, clue) in clues.iter().enumerate().rev() {
-                cmds.spawn(Text2dBundle {
-                    text: Text::from_section(
-                        from_digit(*clue as u32, 10).unwrap(),
-                        text_style.clone(),
-                    )
-                    .with_alignment(TextAlignment::CENTER),
-                    transform: Transform::from_xyz(
-                        min.x - (clue_idx + 1) as f32 * 16.,
-                        min.y + height,
-                        min.z,
-                    ),
-                    ..default()
-                });
-            }
-        });
+        if !(*once) {
+            // Draw horizontal_clues
+            nonogram.horizontal_clues.iter().for_each(|(idx, clues)| {
+                let height = *idx as f32 * 16. + 8.;
+                for (clue_idx, clue) in clues.iter().enumerate().rev() {
+                    cmds.spawn(Text2dBundle {
+                        text: Text::from_section(
+                            from_digit(*clue as u32, 10).unwrap(),
+                            text_style.clone(),
+                        )
+                        .with_alignment(TextAlignment::CENTER),
+                        transform: Transform::from_xyz(
+                            min.x - (clue_idx + 1) as f32 * 16.,
+                            min.y + height,
+                            min.z,
+                        ),
+                        ..default()
+                    });
+                }
+            });
 
-        nonogram.vertical_clues.iter().for_each(|(idx, clues)| {
-            let width = *idx as f32 * 16. + 8.;
-            for (clue_idx, clue) in clues.iter().enumerate().rev() {
-                cmds.spawn(Text2dBundle {
-                    text: Text::from_section(
-                        from_digit(*clue as u32, 10).unwrap(),
-                        text_style.clone(),
-                    )
-                    .with_alignment(TextAlignment::CENTER),
-                    transform: Transform::from_xyz(
-                        min.x + width,
-                        min.y - (clue_idx + 1) as f32 * 16.,
-                        min.z,
-                    ),
-                    ..default()
-                });
-            }
-        });
+            nonogram.vertical_clues.iter().for_each(|(idx, clues)| {
+                let width = *idx as f32 * 16. + 8.;
+                for (clue_idx, clue) in clues.iter().enumerate().rev() {
+                    cmds.spawn(Text2dBundle {
+                        text: Text::from_section(
+                            from_digit(*clue as u32, 10).unwrap(),
+                            text_style.clone(),
+                        )
+                        .with_alignment(TextAlignment::CENTER),
+                        transform: Transform::from_xyz(
+                            min.x + width,
+                            min.y - (clue_idx + 1) as f32 * 16.,
+                            min.z,
+                        ),
+                        ..default()
+                    });
+                }
+            });
+            *once = true;
+        }
     }
 }
 
