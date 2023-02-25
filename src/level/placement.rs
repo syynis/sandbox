@@ -22,6 +22,7 @@ pub struct StorageAccess<'w, 's> {
             &'static mut TileStorage,
         ),
     >,
+    tiles: Query<'w, 's, &'static TilePos>,
 }
 
 impl<'w, 's> StorageAccess<'w, 's> {
@@ -66,6 +67,18 @@ impl<'w, 's> StorageAccess<'w, 's> {
         let (tilemap_entity, map_transform, size, storage) = self.storage.get_single().unwrap();
         storage
     }
+
+    pub fn clear(&mut self, cmds: &mut Commands) {
+        let (tilemap_entity, map_transform, size, mut storage) =
+            self.storage.get_single_mut().unwrap();
+
+        self.tiles.iter().for_each(|tile| {
+            if let Some(entity) = storage.get(&tile) {
+                storage.remove(&tile);
+                cmds.entity(entity).despawn_recursive();
+            }
+        });
+    }
 }
 
 #[derive(SystemParam)]
@@ -99,5 +112,9 @@ impl<'w, 's> TilePlacer<'w, 's> {
 
     pub fn remove(&mut self, pos: &TilePos) {
         self.storage.despawn(&mut self.cmds, pos)
+    }
+
+    pub fn clear(&mut self) {
+        self.storage.clear(&mut self.cmds);
     }
 }

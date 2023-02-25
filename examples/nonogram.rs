@@ -11,6 +11,7 @@ use sandbox::{
     level::{
         from_world_pos,
         placement::{StorageAccess, TilePlacer},
+        serialization::LevelSerializer,
         world_to_tile_pos, LevelPlugin,
     },
     nono::{Cell, Nonogram},
@@ -31,14 +32,17 @@ fn main() {
     app.insert_resource(ClearColor(Color::WHITE));
     app.insert_resource(TileCursor::default())
         .add_system(update_tile_cursor);
+    app.add_system(spawn_nonogram);
     app.add_startup_system(setup);
-    app.add_startup_system(spawn_nonogram);
     app.add_system(setup_collider.after("tiles"))
         .add_system(setup_tiles.label("tiles"))
         .add_system(debug_render_nonogram)
         .add_system(toggle_edit)
         .add_system(edit_nonogram)
-        .add_system(center_camera_editing);
+        .add_system(center_camera_editing)
+        .add_system(save)
+        .add_system(clear)
+        .add_system(load);
 
     app.run();
 }
@@ -105,10 +109,27 @@ struct EditableNonogram(pub Nonogram);
 #[derive(Component)]
 struct Editing;
 
-fn spawn_nonogram(mut cmds: Commands) {
-    let nonogram = example_nonogram();
-    let (width, height) = nonogram.size;
-    cmds.spawn((EditableNonogram(nonogram), TransformBundle::default()));
+// For areas of multiple tiles this indicates the origin (bottom left) in tile space
+#[derive(Component, Deref, DerefMut)]
+struct TilePosAnchor(pub TilePos);
+
+fn spawn_nonogram(mut cmds: Commands, storage: StorageAccess, mut once: Local<bool>) {
+    if !(*once) {
+        let nonogram = example_nonogram();
+        let (width, height) = nonogram.size;
+
+        let (map_transform, map_size) = storage.transform_size();
+        let nonogram_origin = Vec3::new(0., 0., 0.);
+        let nonogram_tile_origin =
+            world_to_tile_pos(nonogram_origin.truncate(), &map_transform, &map_size).unwrap();
+
+        cmds.spawn((
+            EditableNonogram(nonogram),
+            TransformBundle::default(),
+            TilePosAnchor(nonogram_tile_origin),
+        ));
+        *once = true;
+    }
 }
 
 fn example_nonogram() -> Nonogram {
@@ -135,22 +156,25 @@ fn center_camera_editing(
 
 fn toggle_edit(
     mut cmds: Commands,
-    mut nonogram_q: Query<(Entity, &mut EditableNonogram, &Transform)>,
+    nonogram_q: Query<(Entity, &EditableNonogram, &TilePosAnchor)>,
     nonogram_editing_q: Query<Entity, (With<EditableNonogram>, With<Editing>)>,
     cursor: Res<CursorPos>,
+    tile_cursor: Res<TileCursor>,
     keys: Res<Input<KeyCode>>,
 ) {
     if keys.just_pressed(KeyCode::E) {
         if nonogram_editing_q.is_empty() {
-            for (entity, nonogram, transform) in nonogram_q.iter_mut() {
-                let (width_orig, height_orig) = nonogram.size;
-                let (width, height) = (16. * width_orig as f32, 16. * height_orig as f32);
-                let (x, y) = (transform.translation.x, transform.translation.y);
-
-                if (x..x + width).contains(&cursor.x) && (y..y + height).contains(&cursor.y) {
-                    cmds.entity(entity).insert(Editing);
-                    // Nonograms shouldnt overlap but this is currently not enforced so this is here
-                    break;
+            for (entity, nonogram, anchor) in nonogram_q.iter() {
+                if let Some(cursor_tile_pos) = **tile_cursor {
+                    let (width, height) = nonogram.size;
+                    let (x, y) = (anchor.x, anchor.y);
+                    if (x..x + width).contains(&cursor_tile_pos.x)
+                        && (y..y + height).contains(&cursor_tile_pos.y)
+                    {
+                        cmds.entity(entity).insert(Editing);
+                        // Nonograms shouldnt overlap but this is currently not enforced so this is here
+                        break;
+                    }
                 }
             }
         } else {
@@ -170,54 +194,36 @@ fn toggle_edit(
 
 fn edit_nonogram(
     mut tile_placer: TilePlacer,
-    mut nonogram_q: Query<(Entity, &mut EditableNonogram, &Transform), With<Editing>>,
+    mut nonogram_q: Query<
+        (Entity, &mut EditableNonogram, &Transform, &TilePosAnchor),
+        With<Editing>,
+    >,
     cursor: Res<CursorPos>,
     mouse: Res<Input<MouseButton>>,
     keys: Res<Input<KeyCode>>,
     tile_cursor: Res<TileCursor>,
 ) {
-    for (nonogram_entity, mut nonogram, transform) in nonogram_q.iter_mut() {
-        let (width_orig, height_orig) = nonogram.size;
-        let (width, height) = (16. * width_orig as f32, 16. * height_orig as f32);
-        let (x, y) = (transform.translation.x - 8., transform.translation.y - 8.);
-        if (x..x + width).contains(&cursor.x) && (y..y + height).contains(&cursor.y) {
-            if mouse.just_pressed(MouseButton::Left) {
-                if let Some(tile_pos) = **tile_cursor {
-                    tile_placer.try_place(&tile_pos, TileTextureIndex(0));
-                    let (map_transform, map_size) = tile_placer.storage.transform_size();
-                    // TODO precompute this
-                    let nonogram_origin = world_to_tile_pos(
-                        transform.translation.truncate(),
-                        &map_transform,
-                        &map_size,
-                    )
-                    .unwrap();
-                    let new = (
-                        (tile_pos.x - nonogram_origin.x) as usize,
-                        (tile_pos.y - nonogram_origin.y) as usize,
-                    );
-
-                    nonogram.set(new, Cell::Filled);
+    for (nonogram_entity, mut nonogram, transform, anchor) in nonogram_q.iter_mut() {
+        if let Some(cursor_tile_pos) = **tile_cursor {
+            let (width, height) = nonogram.size;
+            let (x, y) = (anchor.x, anchor.y);
+            if (x..x + width).contains(&cursor_tile_pos.x)
+                && (y..y + height).contains(&cursor_tile_pos.y)
+            {
+                if mouse.just_pressed(MouseButton::Left) {
+                    if let Some(tile_pos) = **tile_cursor {
+                        tile_placer.try_place(&tile_pos, TileTextureIndex(0));
+                        let new = UVec2::from(tile_pos) - UVec2::from(**anchor);
+                        nonogram.set((new.x, new.y), Cell::Filled);
+                    }
                 }
-            }
 
-            if mouse.just_pressed(MouseButton::Right) {
-                if let Some(tile_pos) = **tile_cursor {
-                    tile_placer.remove(&tile_pos);
-
-                    let (map_transform, map_size) = tile_placer.storage.transform_size();
-                    let nonogram_origin = world_to_tile_pos(
-                        transform.translation.truncate(),
-                        &map_transform,
-                        &map_size,
-                    )
-                    .unwrap();
-                    let new = (
-                        (tile_pos.x - nonogram_origin.x) as usize,
-                        (tile_pos.y - nonogram_origin.y) as usize,
-                    );
-
-                    nonogram.set(new, Cell::Empty);
+                if mouse.just_pressed(MouseButton::Right) {
+                    if let Some(tile_pos) = **tile_cursor {
+                        tile_placer.remove(&tile_pos);
+                        let new = UVec2::from(tile_pos) - UVec2::from(**anchor);
+                        nonogram.set((new.x, new.y), Cell::Empty);
+                    }
                 }
             }
         }
@@ -242,14 +248,13 @@ fn debug_render_nonogram(
             lines.line_colored(start, end, 0., Color::RED);
         }
 
-        let font = asset_server.load("fonts/roboto.ttf");
-        let text_style = TextStyle {
-            font,
-            font_size: 16.,
-            color: Color::BLACK,
-        };
-
         if !(*once) {
+            let font = asset_server.load("fonts/roboto.ttf");
+            let text_style = TextStyle {
+                font,
+                font_size: 16.,
+                color: Color::BLACK,
+            };
             // Draw horizontal_clues
             nonogram.horizontal_clues.iter().for_each(|(idx, clues)| {
                 let height = *idx as f32 * 16. + 8.;
@@ -305,4 +310,24 @@ fn box_lines(origin: Vec3, size: (f32, f32)) -> [(Vec3, Vec3); 4] {
     let top_down = (max, max - Vec3::new(0., height, 0.));
 
     [bottom_right, bottom_up, top_left, top_down]
+}
+
+fn save(keys: Res<Input<KeyCode>>, serializer: LevelSerializer) {
+    if keys.just_pressed(KeyCode::S) {
+        info!("Saving map");
+        serializer.save_to_file();
+    }
+}
+
+fn load(keys: Res<Input<KeyCode>>, mut serializer: LevelSerializer) {
+    if keys.just_pressed(KeyCode::L) {
+        info!("Loading map");
+        serializer.load_from_file();
+    }
+}
+
+fn clear(keys: Res<Input<KeyCode>>, mut tile_placer: TilePlacer) {
+    if keys.just_pressed(KeyCode::C) {
+        tile_placer.clear();
+    }
 }

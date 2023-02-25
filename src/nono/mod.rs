@@ -34,7 +34,7 @@ type Clues = Vec<Clue>;
 #[derive(Debug, Clone)]
 pub struct Nonogram {
     pub cells: Vec<Cell>,
-    pub size: (usize, usize),
+    pub size: (u32, u32),
     pub horizontal_clues: Vec<(usize, Clues)>,
     pub vertical_clues: Vec<(usize, Clues)>,
 }
@@ -48,7 +48,11 @@ impl Display for Nonogram {
                 s.push(self.get((x, y)).to_char());
                 s.push(' ');
             }
-            if let Some((_, clue)) = self.horizontal_clues.iter().find(|(pos, _)| *pos == y) {
+            if let Some((_, clue)) = self
+                .horizontal_clues
+                .iter()
+                .find(|(pos, _)| *pos == y as usize)
+            {
                 clue.iter().for_each(|c| {
                     s.push(' ');
                     s.push(from_digit(*c as u32, 10).unwrap());
@@ -65,7 +69,11 @@ impl Display for Nonogram {
 
         for l in 0..largest_clue {
             for x in 0..width {
-                if let Some((_, clue)) = self.vertical_clues.iter().find(|(pos, _)| *pos == x) {
+                if let Some((_, clue)) = self
+                    .vertical_clues
+                    .iter()
+                    .find(|(pos, _)| *pos == x as usize)
+                {
                     s.push(from_digit(clue[l] as u32, 10).unwrap());
                     s.push(' ');
                 } else {
@@ -82,36 +90,37 @@ impl Display for Nonogram {
 impl Nonogram {
     // TODO get rid of unwraps
     pub fn new(
-        size: (usize, usize),
+        size: (u32, u32),
         horizontal_clues: Vec<(usize, Clues)>,
         vertical_clues: Vec<(usize, Clues)>,
     ) -> Self {
         let (width, height) = size;
         Self {
-            cells: vec![Cell::default(); width * height],
+            cells: vec![Cell::default(); (width * height) as usize],
             size,
             horizontal_clues,
             vertical_clues,
         }
     }
 
-    fn pos_idx(&self, pos: (usize, usize)) -> usize {
+    fn pos_idx(&self, pos: (u32, u32)) -> usize {
         let width = self.size.0;
-        pos.1 * width + pos.0
+        (pos.1 * width + pos.0) as usize
     }
 
-    pub fn get(&self, pos: (usize, usize)) -> &Cell {
+    pub fn get(&self, pos: (u32, u32)) -> &Cell {
         self.cells.get(self.pos_idx(pos)).unwrap()
     }
 
-    pub fn set(&mut self, pos: (usize, usize), cell: Cell) {
+    pub fn set(&mut self, pos: (u32, u32), cell: Cell) {
         let idx = self.pos_idx(pos);
         self.cells.get_mut(idx).map(|c| core::mem::replace(c, cell));
     }
 
     pub fn is_valid(&self) -> bool {
         let (width, height) = self.size;
-        let mut transpose = vec![Cell::default(); width * height];
+        let (width, height) = (width as usize, height as usize);
+        let mut transpose = vec![Cell::default(); (width * height) as usize];
         Self::transpose(&self, &mut transpose);
 
         self.horizontal_clues.iter().all(|(row, clues)| {
@@ -135,7 +144,7 @@ impl Nonogram {
         let (width, height) = self.size;
         for x in 0..width {
             for y in 0..height {
-                let idx = x * height + y;
+                let idx = (x * height + y) as usize;
 
                 *output.get_mut(idx).unwrap() = *self.cells.get(self.pos_idx((x, y))).unwrap();
             }
