@@ -1,8 +1,9 @@
 use std::{char::from_digit, fmt::Display};
 
 use bevy::{prelude::*, reflect::Tuple};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Cell {
     #[default]
     Empty,
@@ -31,8 +32,9 @@ impl Cell {
 type Clue = u8;
 type Clues = Vec<Clue>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Nonogram {
+    #[serde(skip)]
     pub cells: Vec<Cell>,
     pub size: (u32, u32),
     pub horizontal_clues: Vec<(usize, Clues)>,
@@ -149,5 +151,9 @@ impl Nonogram {
                 *output.get_mut(idx).unwrap() = *self.cells.get(self.pos_idx((x, y))).unwrap();
             }
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cells.iter().all(|cell| cell.is_empty())
     }
 }

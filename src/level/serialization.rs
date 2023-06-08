@@ -8,7 +8,9 @@ use bevy_ecs_tilemap::{
 use ron::ser;
 use serde::{Deserialize, Serialize};
 
-use super::placement::TilePlacer;
+use crate::nono::{Cell, Nonogram};
+
+use super::{placement::TilePlacer, EditableNonogram, TilePosAnchor};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "TilePos")]
@@ -32,11 +34,13 @@ pub struct SerializableTile {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SerializableLevel {
     pub tiles: Vec<SerializableTile>,
+    pub nonograms: Vec<(EditableNonogram, TilePosAnchor)>,
 }
 
 #[derive(SystemParam)]
 pub struct LevelSerializer<'w, 's> {
     tiles: Query<'w, 's, (&'static TilePos, &'static TileTextureIndex)>,
+    nonograms: Query<'w, 's, (&'static EditableNonogram, &'static TilePosAnchor)>,
     tile_placer: TilePlacer<'w, 's>,
 }
 
@@ -47,7 +51,13 @@ impl<'w, 's> LevelSerializer<'w, 's> {
         for (pos, id) in self.tiles.iter() {
             tiles.push(SerializableTile { pos: *pos, id: *id });
         }
-        Some(SerializableLevel { tiles })
+
+        let mut nonograms = Vec::new();
+        for (nonogram, anchor) in self.nonograms.iter() {
+            nonograms.push((nonogram.clone(), anchor.clone()));
+        }
+
+        Some(SerializableLevel { tiles, nonograms })
     }
 
     pub fn save_to_file(&self) {

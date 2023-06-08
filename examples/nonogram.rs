@@ -10,9 +10,9 @@ use sandbox::{
     input::{update_cursor_pos, CursorPos, InputPlugin},
     level::{
         from_world_pos,
-        placement::{StorageAccess, TilePlacer},
+        placement::{StorageAccess, TileModification, TilePlacer, TileUpdateEvent},
         serialization::LevelSerializer,
-        world_to_tile_pos, LevelPlugin,
+        world_to_tile_pos, EditableNonogram, Editing, LevelPlugin, TileCursor, TilePosAnchor,
     },
     nono::{Cell, Nonogram},
 };
@@ -30,15 +30,14 @@ fn main() {
 
     app.register_type::<CursorPos>();
     app.insert_resource(ClearColor(Color::WHITE));
-    app.insert_resource(TileCursor::default())
-        .add_system(update_tile_cursor);
     app.add_system(spawn_nonogram);
     app.add_startup_system(setup);
     app.add_system(setup_collider.after("tiles"))
         .add_system(setup_tiles.label("tiles"))
         .add_system(debug_render_nonogram)
         .add_system(toggle_edit)
-        .add_system(edit_nonogram)
+        .add_system(edit_tiles.label("edit"))
+        .add_system(edit_nonogram.after("edit"))
         .add_system(center_camera_editing)
         .add_system(save)
         .add_system(clear)
@@ -83,50 +82,28 @@ fn setup_collider(mut cmds: Commands, tiles_q: Query<(Entity, &TilePos), Added<T
     });
 }
 
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct TileCursor(pub Option<TilePos>);
-
-pub fn update_tile_cursor(
-    world_cursor: Res<CursorPos>,
-    mut tile_cursor: ResMut<TileCursor>,
-    tile_storage_q: Query<(&Transform, &TilemapSize)>,
-) {
-    let (map_transform, map_size) = tile_storage_q.get_single().unwrap();
-    if world_cursor.is_changed() {
-        let cursor_pos = **world_cursor;
-        let cursor_in_map_pos: Vec2 = {
-            let cursor_pos = Vec4::from((cursor_pos.extend(0.0), 1.0));
-            let cursor_in_map_pos = map_transform.compute_matrix().inverse() * cursor_pos;
-            cursor_in_map_pos.truncate().truncate()
-        };
-
-        **tile_cursor = from_world_pos(&cursor_in_map_pos, &map_size);
-    }
-}
-
-#[derive(Component, Deref, DerefMut)]
-struct EditableNonogram(pub Nonogram);
-#[derive(Component)]
-struct Editing;
-
-// For areas of multiple tiles this indicates the origin (bottom left) in tile space
-#[derive(Component, Deref, DerefMut)]
-struct TilePosAnchor(pub TilePos);
-
 fn spawn_nonogram(mut cmds: Commands, storage: StorageAccess, mut once: Local<bool>) {
     if !(*once) {
         let nonogram = example_nonogram();
         let (width, height) = nonogram.size;
 
-        let (map_transform, map_size) = storage.transform_size();
-        let nonogram_origin = Vec3::new(0., 0., 0.);
+        let (map_transform, map_size) = storage.transform_size().unwrap();
+        let nonogram_origin = Vec3::new(0., 16., 0.);
+        let origin_tpos = TilePos { x: 10, y: 10 };
+        let origin_wpos = Vec2::from(origin_tpos) * 16.;
         let nonogram_tile_origin =
             world_to_tile_pos(nonogram_origin.truncate(), &map_transform, &map_size).unwrap();
 
         cmds.spawn((
             EditableNonogram(nonogram),
-            TransformBundle::default(),
-            TilePosAnchor(nonogram_tile_origin),
+            TransformBundle {
+                local: Transform {
+                    translation: origin_wpos.extend(0.),
+                    ..default()
+                },
+                ..default()
+            },
+            TilePosAnchor { pos: origin_tpos },
         ));
         *once = true;
     }
@@ -180,7 +157,7 @@ fn toggle_edit(
         } else {
             if let Some(entity) = nonogram_editing_q.get_single().ok() {
                 let (entity, nonogram, transform) = nonogram_q.get(entity).unwrap();
-                if nonogram.is_valid() {
+                if nonogram.is_valid() || nonogram.is_empty() {
                     cmds.entity(entity).remove::<Editing>();
                 } else {
                     info!("Not valid");
@@ -192,37 +169,82 @@ fn toggle_edit(
     }
 }
 
-fn edit_nonogram(
+fn edit_tiles(
     mut tile_placer: TilePlacer,
-    mut nonogram_q: Query<
-        (Entity, &mut EditableNonogram, &Transform, &TilePosAnchor),
-        With<Editing>,
-    >,
+    mut nonogram_q: Query<(
+        Entity,
+        &EditableNonogram,
+        &Transform,
+        &TilePosAnchor,
+        Option<&Editing>,
+    )>,
     cursor: Res<CursorPos>,
     mouse: Res<Input<MouseButton>>,
     keys: Res<Input<KeyCode>>,
     tile_cursor: Res<TileCursor>,
 ) {
-    for (nonogram_entity, mut nonogram, transform, anchor) in nonogram_q.iter_mut() {
-        if let Some(cursor_tile_pos) = **tile_cursor {
-            let (width, height) = nonogram.size;
-            let (x, y) = (anchor.x, anchor.y);
-            if (x..x + width).contains(&cursor_tile_pos.x)
-                && (y..y + height).contains(&cursor_tile_pos.y)
-            {
-                if mouse.just_pressed(MouseButton::Left) {
-                    if let Some(tile_pos) = **tile_cursor {
-                        tile_placer.try_place(&tile_pos, TileTextureIndex(0));
-                        let new = UVec2::from(tile_pos) - UVec2::from(**anchor);
-                        nonogram.set((new.x, new.y), Cell::Filled);
+    if let Some(cursor_tile_pos) = **tile_cursor {
+        let cursor_in_nonogram = || -> bool {
+            for (nonogram_e, nonogram, transform, anchor, editing) in nonogram_q.iter() {
+                let (width, height) = nonogram.size;
+                let (x, y) = (anchor.x, anchor.y);
+                if (x..x + width).contains(&cursor_tile_pos.x)
+                    && (y..y + height).contains(&cursor_tile_pos.y)
+                {
+                    let can_edit = editing.is_some();
+                    return can_edit;
+                }
+            }
+            true
+        };
+        if mouse.just_pressed(MouseButton::Left) {
+            if cursor_in_nonogram() {
+                tile_placer.try_place(&cursor_tile_pos, TileTextureIndex(0));
+            }
+        }
+
+        if mouse.just_pressed(MouseButton::Right) {
+            if cursor_in_nonogram() {
+                tile_placer.remove(&cursor_tile_pos);
+            }
+        }
+    }
+}
+
+fn edit_nonogram(
+    tile_pos_q: Query<&TilePos>,
+    mut tile_update_event_reader: EventReader<TileUpdateEvent>,
+    mut nonogram_q: Query<
+        (Entity, &mut EditableNonogram, &Transform, &TilePosAnchor),
+        With<Editing>,
+    >,
+) {
+    if let Some((nonogram_e, mut nonogram, transform, anchor)) = nonogram_q.get_single_mut().ok() {
+        let (width, height) = nonogram.size;
+        let (x, y) = (anchor.x, anchor.y);
+
+        for TileUpdateEvent { modification } in tile_update_event_reader.iter() {
+            match *modification {
+                TileModification::Added { old, new } => {
+                    if let Some(tile_pos) = tile_pos_q.get(new).ok() {
+                        bevy::log::info!("set filled");
+                        if (x..x + width).contains(&tile_pos.x)
+                            && (y..y + height).contains(&tile_pos.y)
+                        {
+                            let rpos = UVec2::from(tile_pos) - UVec2::from(**anchor);
+                            nonogram.set((rpos.x, rpos.y), Cell::Filled);
+                        }
                     }
                 }
-
-                if mouse.just_pressed(MouseButton::Right) {
-                    if let Some(tile_pos) = **tile_cursor {
-                        tile_placer.remove(&tile_pos);
-                        let new = UVec2::from(tile_pos) - UVec2::from(**anchor);
-                        nonogram.set((new.x, new.y), Cell::Empty);
+                TileModification::Removed { old } => {
+                    if let Some(tile_pos) = tile_pos_q.get(old).ok() {
+                        if (x..x + width).contains(&tile_pos.x)
+                            && (y..y + height).contains(&tile_pos.y)
+                        {
+                            bevy::log::info!("set empty");
+                            let rpos = UVec2::from(tile_pos) - UVec2::from(**anchor);
+                            nonogram.set((rpos.x, rpos.y), Cell::Empty);
+                        }
                     }
                 }
             }
