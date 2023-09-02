@@ -1,83 +1,72 @@
-use bevy::log::*;
+use std::time::Duration;
+
 use bevy::prelude::*;
 
+use bevy::sprite::MaterialMesh2dBundle;
+use bevy::time::Stopwatch;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::PanCam;
 use bevy_pancam::PanCamPlugin;
-use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
-use sandbox::input::update_cursor_pos;
-use sandbox::input::CursorPos;
-use sandbox::phys;
-use sandbox::phys::movement::Force;
-use sandbox::phys::movement::LinearVelocity;
-use sandbox::phys::movement::MovementPlugin;
-use sandbox::phys::verlet::*;
-use sandbox::phys::Gravity;
-use sandbox::phys::PhysPlugin;
-use sandbox::phys::PhysSettings;
+use bevy_xpbd_2d::math::*;
+use bevy_xpbd_2d::prelude::*;
+use leafwing_input_manager::prelude::*;
+use sandbox::input::InputPlugin;
 
 const PPM: f32 = 32.0;
 
 fn main() {
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins)
-        .add_plugin(PanCamPlugin::default())
-        .add_plugin(PhysPlugin)
-        .add_plugin(DebugLinesPlugin::default())
-        .add_plugin(WorldInspectorPlugin);
+    app.add_plugins((
+        DefaultPlugins,
+        PanCamPlugin::default(),
+        PhysicsPlugins::default(),
+        DebugLinesPlugin::default(),
+        WorldInspectorPlugin::new(),
+        InputPlugin,
+        InputManagerPlugin::<ActionKind>::default(),
+    ));
     app.insert_resource(ClearColor(Color::BLACK))
-        .insert_resource(Ground::default());
+        .insert_resource(Gravity(Vector::NEG_Y * 256.0));
 
-    app.insert_resource(CursorPos::default())
-        .add_system(update_cursor_pos);
-    app.add_startup_system(setup);
-    app.add_system(draw_ground)
-        .add_system(movement)
-        .add_system(player_ground_collision);
+    app.add_systems(Startup, setup);
+    app.add_systems(Update, (spawn_player, movement));
 
     app.run();
 }
 
-#[derive(Resource, Reflect, Deref, DerefMut, Clone)]
-struct Ground(pub Vec<(f32, f32)>);
-
-impl Ground {
-    fn height_at(&self, x: f32) -> f32 {
-        if x < 0. {
-            return self.0.first().unwrap_or(&(0., 0.)).1;
-        }
-        if let Some([(sx, sy), (ex, ey)]) = self.0.windows(2).find(|c| match c {
-            [(sx, sy), (ex, ey)] => (sx..ex).contains(&&x),
-            _ => false,
-        }) {
-            let t = (x - sx) / (ex - sx);
-            return sy * (1.0 - t) + ey * t;
-        } else {
-            return self.0.last().unwrap_or(&(0., 0.0)).1;
-        };
-    }
+#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
+pub enum ActionKind {
+    Left,
+    Right,
+    Jump,
 }
 
 #[derive(Component)]
-struct Player;
+pub struct Controllable;
 
-impl Default for Ground {
+#[derive(Bundle)]
+pub struct Control {
+    controllable: Controllable,
+    input: InputManagerBundle<ActionKind>,
+}
+
+impl Default for Control {
     fn default() -> Self {
-        Self(
-            Vec::from([
-                (0., 0.),
-                (15., 0.),
-                (35., 5.),
-                (50., 5.),
-                (55., 6.),
-                (70., 6.5),
-            ])
-            .iter()
-            .map(|(x, y)| (x * PPM, y * PPM))
-            .collect::<Vec<(f32, f32)>>(),
-        )
+        use ActionKind::*;
+
+        let mut input_map = InputMap::default();
+        input_map.insert(KeyCode::A, Left);
+        input_map.insert(KeyCode::D, Right);
+        input_map.insert(KeyCode::Space, Jump);
+        Self {
+            controllable: Controllable,
+            input: InputManagerBundle {
+                input_map,
+                ..default()
+            },
+        }
     }
 }
 
@@ -91,51 +80,122 @@ fn setup(mut cmds: Commands) {
         },
     ));
 
+    let square_sprite = Sprite {
+        color: Color::rgb(0.7, 0.7, 0.8),
+        custom_size: Some(Vec2::splat(8.0)),
+        ..default()
+    };
+
+    // Floor
     cmds.spawn((
-        LinearVelocity::default(),
-        Force::default(),
-        Player,
         SpriteBundle {
-            sprite: Sprite {
-                color: Color::RED,
-                custom_size: Some(Vec2::splat(32.0)),
-                anchor: bevy::sprite::Anchor::BottomLeft,
-                ..default()
-            },
-            transform: Transform::from_xyz(32.0, 32.0, 0.0),
+            sprite: square_sprite.clone(),
+            transform: Transform::from_scale(Vec3::new(50.0, 1.0, 1.0)),
             ..default()
         },
+        RigidBody::Static,
+        Position(Vector::NEG_Y * 8.0 * 6.0),
+        Collider::cuboid(8.0 * 50.0, 8.0),
+        LockedAxes::new().lock_rotation(),
+    ));
+
+    // Floor
+    cmds.spawn((
+        SpriteBundle {
+            sprite: square_sprite.clone(),
+            transform: Transform::from_scale(Vec3::new(80.0, 1.0, 1.0)),
+            ..default()
+        },
+        RigidBody::Static,
+        Position(Vector::X * 8. * 80. + Vector::NEG_Y * 8.0 * 6.0),
+        Collider::cuboid(8.0 * 80.0, 8.0),
+        LockedAxes::new().lock_rotation(),
     ));
 }
 
-fn movement(input: Res<Input<KeyCode>>, mut query: Query<&mut LinearVelocity, With<Player>>) {
-    if let Some(mut vel) = query.get_single_mut().ok() {
-        let mut any_pressed = false;
-        if input.pressed(KeyCode::A) {
-            any_pressed = true;
-            **vel -= Vec2::new(4., 0.);
-        }
-        if input.pressed(KeyCode::D) {
-            any_pressed = true;
-            **vel += Vec2::new(4., 0.);
-        }
-        if !any_pressed {
-            **vel = Vec2::new(0., vel.y);
-        }
+fn spawn_player(
+    mut cmds: Commands,
+    keys: Res<Input<KeyCode>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    if keys.just_pressed(KeyCode::F) {
+        let cuboid = (
+            Collider::cuboid(8.0, 8.0),
+            MaterialMesh2dBundle {
+                mesh: meshes.add(shape::Box::new(8.0, 8.0, 8.0).into()).into(),
+                material: materials.add(ColorMaterial::from(Color::rgb(0.47, 0.58, 0.8))),
+                ..default()
+            },
+            Friction::new(0.),
+        );
+
+        cmds.spawn((
+            cuboid.clone(),
+            RigidBody::Dynamic,
+            Position(Vector::new(0., 0.)),
+            Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
+            LockedAxes::new().lock_rotation(),
+            Control::default(),
+            ShapeCaster::new(
+                Collider::cuboid(8., 8.),
+                Vector::NEG_Y * 0.05,
+                0.,
+                Vector::NEG_Y,
+            )
+            .with_ignore_origin_penetration(true) // Don't count player's collider
+            .with_max_time_of_impact(0.2)
+            .with_max_hits(1),
+        ));
     }
 }
 
-fn player_ground_collision(ground: Res<Ground>, mut query: Query<&mut Transform, With<Player>>) {
-    if let Some(mut transform) = query.get_single_mut().ok() {
-        transform.translation.y = ground.height_at(transform.translation.x + 16.);
-    }
-}
+fn movement(
+    action_state_query: Query<&ActionState<ActionKind>>,
+    mut query_player: Query<(&mut LinearVelocity, &ShapeHits), With<Controllable>>,
+    time: Res<Time>,
+    mut jump_extender: Local<Stopwatch>,
+    mut coyote: Local<Timer>,
+) {
+    for action_state in action_state_query.iter() {
+        jump_extender.tick(time.delta());
+        coyote.tick(time.delta());
+        for (mut vel, ground) in query_player.iter_mut() {
+            let grounded = !ground.is_empty();
 
-fn draw_ground(ground: Res<Ground>, mut lines: ResMut<DebugLines>) {
-    let ground = ground.0.clone();
-    for i in 0..ground.len() - 1 {
-        let start = Vec2::new(ground[i].0, ground[i].1).extend(0.0);
-        let end = Vec2::new(ground[i + 1].0, ground[i + 1].1).extend(0.0);
-        lines.line(start, end, 0.0);
+            if grounded {
+                coyote.set_duration(Duration::from_secs_f32(0.075));
+                coyote.reset();
+                coyote.pause();
+            } else {
+                coyote.unpause();
+            }
+
+            let vel_penalty = if !grounded { 8. } else { 0. };
+            let falling = vel.y < 0.;
+            let can_coyote = !coyote.finished() && falling;
+            let can_jump = grounded || can_coyote;
+            if action_state.just_pressed(ActionKind::Jump) && can_jump {
+                vel.y += 128.;
+                jump_extender.reset();
+                let remaining = coyote.remaining();
+                coyote.tick(remaining);
+            }
+
+            if action_state.pressed(ActionKind::Jump)
+                && !grounded
+                && jump_extender.elapsed_secs() < 0.125
+            {
+                vel.y += 4.;
+            }
+
+            if action_state.pressed(ActionKind::Left) {
+                vel.x -= 32. - vel_penalty;
+            }
+            if action_state.pressed(ActionKind::Right) {
+                vel.x += 32. - vel_penalty;
+            }
+            vel.x *= 0.8;
+        }
     }
 }

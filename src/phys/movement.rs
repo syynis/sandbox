@@ -2,26 +2,20 @@ use bevy::prelude::*;
 
 pub struct MovementPlugin;
 
-#[derive(SystemLabel)]
+#[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
 pub struct VelocityLabel;
-#[derive(SystemLabel)]
+#[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
 pub struct ForceLabel;
 
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::new()
-                .label(ForceLabel)
-                .with_system(apply_force)
-                .with_system(apply_torque),
-        )
-        .add_system_set(
-            SystemSet::new()
-                .label(VelocityLabel)
-                .after(ForceLabel)
-                .with_system(apply_velocity)
-                .with_system(apply_angular_velocity),
-        );
+        app.add_systems(Update, (apply_force, apply_torque).in_set(ForceLabel))
+            .add_systems(
+                Update,
+                (apply_velocity, apply_angular_velocity)
+                    .in_set(VelocityLabel)
+                    .after(ForceLabel),
+            );
         app.register_type::<LinearVelocity>()
             .register_type::<AngularVelocity>()
             .register_type::<Force>()

@@ -4,18 +4,20 @@ use super::PhysSettings;
 
 pub struct VerletPlugin;
 
-#[derive(SystemLabel)]
+#[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
 struct PointLabel;
-#[derive(SystemLabel)]
+#[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
 struct LinkLabel;
 
 impl Plugin for VerletPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system_set(
-            SystemSet::new()
-                .with_system(update_points.label(PointLabel))
-                .with_system(update_links.label(LinkLabel).after(PointLabel))
-                .with_system(handle_links.after(LinkLabel)),
+        app.add_systems(
+            Update,
+            (
+                (update_points.in_set(PointLabel)),
+                (update_links.in_set(LinkLabel).after(PointLabel)),
+                (handle_links.after(LinkLabel)),
+            ),
         );
         app.register_type::<Point>()
             .register_type::<Locked>()

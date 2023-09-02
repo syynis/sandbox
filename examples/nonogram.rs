@@ -5,7 +5,7 @@ use bevy_ecs_tilemap::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_debug_lines::{DebugLines, DebugLinesPlugin};
-use bevy_rapier2d::prelude::*;
+use bevy_xpbd_2d::prelude::*;
 use sandbox::{
     input::{update_cursor_pos, CursorPos, InputPlugin},
     level::{
@@ -17,31 +17,47 @@ use sandbox::{
     nono::{Cell, Nonogram},
 };
 
+#[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
+pub struct EditLabel;
+
 fn main() {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()));
+    app.add_plugins((
+        DefaultPlugins.set(ImagePlugin::default_nearest()),
+        PhysicsPlugins::default(),
+    ));
+
     app.add_plugin(LevelPlugin)
         .add_plugin(PanCamPlugin::default())
-        .add_plugin(WorldInspectorPlugin)
+        .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(DebugLinesPlugin::default())
-        .add_plugin(InputPlugin)
-        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(16.0))
-        .add_plugin(RapierDebugRenderPlugin::default());
+        .add_plugin(InputPlugin);
+
+    /*
+    .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(16.0))
+    .add_plugin(RapierDebugRenderPlugin::default());
+    */
 
     app.register_type::<CursorPos>();
     app.insert_resource(ClearColor(Color::WHITE));
-    app.add_system(spawn_nonogram);
     app.add_startup_system(setup);
-    app.add_system(setup_collider.after("tiles"))
-        .add_system(setup_tiles.label("tiles"))
-        .add_system(debug_render_nonogram)
-        .add_system(toggle_edit)
-        .add_system(edit_tiles.label("edit"))
-        .add_system(edit_nonogram.after("edit"))
-        .add_system(center_camera_editing)
-        .add_system(save)
-        .add_system(clear)
-        .add_system(load);
+    //app.add_system(setup_collider.after("tiles"))
+    app.add_systems(
+        Update,
+        (
+            // TODO should probably be startup system / or oneshot
+            spawn_nonogram,
+            setup_tiles,
+            debug_render_nonogram,
+            toggle_edit,
+            center_camera_editing,
+            save,
+            clear,
+            load,
+        ),
+    );
+    app.add_systems(Update, (edit_tiles).in_set(EditLabel));
+    app.add_systems(Update, (edit_nonogram).after(EditLabel));
 
     app.run();
 }
@@ -67,6 +83,7 @@ fn setup_tiles(mut tile_placer: TilePlacer, mut once: Local<bool>) {
     }
 }
 
+/*
 fn setup_collider(mut cmds: Commands, tiles_q: Query<(Entity, &TilePos), Added<TilePos>>) {
     tiles_q.for_each(|(entity, tile_pos)| {
         let tile_center =
@@ -81,6 +98,7 @@ fn setup_collider(mut cmds: Commands, tiles_q: Query<(Entity, &TilePos), Added<T
         ));
     });
 }
+*/
 
 fn spawn_nonogram(mut cmds: Commands, storage: StorageAccess, mut once: Local<bool>) {
     if !(*once) {
@@ -286,7 +304,7 @@ fn debug_render_nonogram(
                             from_digit(*clue as u32, 10).unwrap(),
                             text_style.clone(),
                         )
-                        .with_alignment(TextAlignment::CENTER),
+                        .with_alignment(TextAlignment::Center),
                         transform: Transform::from_xyz(
                             min.x - (clue_idx + 1) as f32 * 16.,
                             min.y + height,
@@ -305,7 +323,7 @@ fn debug_render_nonogram(
                             from_digit(*clue as u32, 10).unwrap(),
                             text_style.clone(),
                         )
-                        .with_alignment(TextAlignment::CENTER),
+                        .with_alignment(TextAlignment::Center),
                         transform: Transform::from_xyz(
                             min.x + width,
                             min.y - (clue_idx + 1) as f32 * 16.,

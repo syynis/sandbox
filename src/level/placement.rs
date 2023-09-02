@@ -6,6 +6,7 @@ pub enum TileModification {
     Removed { old: Entity },
 }
 
+#[derive(Event)]
 pub struct TileUpdateEvent {
     pub modification: TileModification,
 }
@@ -113,7 +114,7 @@ impl<'w, 's> StorageAccess<'w, 's> {
 pub struct TilePlacer<'w, 's> {
     cmds: Commands<'w, 's>,
     pub storage: StorageAccess<'w, 's>,
-    tile_update_event_writer: EventWriter<'w, 's, TileUpdateEvent>,
+    tile_update_event_writer: EventWriter<'w, TileUpdateEvent>,
 }
 
 impl<'w, 's> TilePlacer<'w, 's> {
