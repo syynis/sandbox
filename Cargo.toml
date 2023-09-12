@@ -17,7 +17,8 @@ bevy_prototype_lyon = "0.9"
 lazy_static = "1.4.0"
 serde = "1.0"
 ron = "0.8"
-bevy_xpbd_2d = {version = "0.2" , features = ["debug-plugin"]}
+bevy_xpbd_2d = {git = "https://github.com/Jondolf/bevy_xpbd", branch = "main", features = ["debug-plugin"]}
+
 
 [profile.dev]
 opt-level = 1
