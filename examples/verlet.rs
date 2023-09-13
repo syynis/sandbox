@@ -1,14 +1,11 @@
-use bevy::log::*;
 use bevy::prelude::*;
-use bevy::utils::tracing::field::debug;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::*;
 
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
-use sandbox::input::update_cursor_pos;
 use sandbox::input::CursorPos;
-use sandbox::phys;
+use sandbox::input::InputPlugin;
 use sandbox::phys::verlet::*;
 use sandbox::phys::Gravity;
 use sandbox::phys::PhysPlugin;
@@ -17,11 +14,14 @@ use sandbox::phys::PhysSettings;
 fn main() {
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins)
-        .add_plugin(PanCamPlugin::default())
-        .add_plugin(PhysPlugin)
-        .add_plugin(DebugLinesPlugin::default())
-        .add_plugin(WorldInspectorPlugin);
+    app.add_plugins((
+        DefaultPlugins,
+        PanCamPlugin::default(),
+        PhysPlugin,
+        DebugLinesPlugin::default(),
+        WorldInspectorPlugin::default(),
+        InputPlugin,
+    ));
     app.insert_resource(PlacementSettings {
         color: Color::WHITE,
         locked_color: Color::RED,
@@ -29,12 +29,8 @@ fn main() {
     })
     .insert_resource(ClearColor(Color::BLACK));
 
-    app.insert_resource(CursorPos::default())
-        .add_system(update_cursor_pos);
-    app.add_startup_system(setup);
-    app.add_system(input)
-        .add_system(draw_links)
-        .add_system(build);
+    app.add_systems(Startup, setup);
+    app.add_systems(Update, (input, draw_links, build));
 
     app.run();
 }
@@ -80,13 +76,12 @@ fn build(
     points: Query<(Entity, &Transform), With<Point>>,
     links: Query<(Entity, &Link)>,
     mouse: Res<Input<MouseButton>>,
-    keys: Res<Input<KeyCode>>,
     cursor_pos: Res<CursorPos>,
     placement: Res<PlacementSettings>,
-    egui_ctx: Option<ResMut<bevy_inspector_egui::bevy_egui::EguiContext>>,
+    mut egui_ctx: Query<&mut bevy_inspector_egui::bevy_egui::EguiContext>,
     mut selected: Local<Option<Entity>>,
 ) {
-    if let Some(mut egui_ctx) = egui_ctx {
+    if let Some(mut egui_ctx) = egui_ctx.get_single_mut().ok() {
         if hover_egui(&mut egui_ctx) {
             return;
         }
@@ -128,7 +123,7 @@ fn build(
 }
 
 fn hover_egui(egui_ctx: &mut bevy_inspector_egui::bevy_egui::EguiContext) -> bool {
-    egui_ctx.ctx_mut().wants_pointer_input() || egui_ctx.ctx_mut().wants_keyboard_input()
+    egui_ctx.get_mut().wants_pointer_input() || egui_ctx.get_mut().wants_keyboard_input()
 }
 
 fn sprite_bundle(color: Color, pos: Vec2) -> SpriteBundle {

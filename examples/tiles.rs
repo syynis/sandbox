@@ -6,19 +6,21 @@ use bevy_pancam::PanCam;
 use bevy_pancam::PanCamPlugin;
 use sandbox::input::update_cursor_pos;
 use sandbox::input::CursorPos;
+use sandbox::input::InputPlugin;
 
 fn main() {
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
-        .add_plugin(TilemapPlugin)
-        .add_plugin(PanCamPlugin::default())
-        .add_plugin(WorldInspectorPlugin);
-    app.insert_resource(CursorPos::default())
-        .add_system(update_cursor_pos);
+    app.add_plugins((
+        DefaultPlugins.set(ImagePlugin::default_nearest()),
+        TilemapPlugin,
+        PanCamPlugin::default(),
+        InputPlugin,
+        WorldInspectorPlugin::default(),
+    ));
     app.insert_resource(ClearColor(Color::WHITE));
-    app.add_startup_system(setup);
-    app.add_system(remove_tiles);
+    app.add_systems(Startup, setup);
+    app.add_systems(Update, remove_tiles);
 
     app.run();
 }
