@@ -29,10 +29,9 @@ pub struct TileCursor(pub Option<TilePos>);
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugin(TilemapPlugin);
-        app.add_startup_system(spawn_level);
+        app.add_plugins(TilemapPlugin);
         app.insert_resource(TileCursor::default());
-        app.add_system(update_tile_cursor);
+        app.add_systems(Update, update_tile_cursor);
         app.add_event::<TileUpdateEvent>();
     }
 }
@@ -53,29 +52,6 @@ pub fn update_tile_cursor(
 
         **tile_cursor = from_world_pos(&cursor_in_map_pos, &map_size);
     }
-}
-
-fn spawn_level(mut cmds: Commands, assets_server: Res<AssetServer>) {
-    let tiles: Handle<Image> = assets_server.load("tiles.png");
-
-    let map_size = TilemapSize { x: 32, y: 32 };
-    let mut tile_storage = TileStorage::empty(map_size);
-    let tilemap_entity = cmds.spawn_empty().id();
-
-    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
-    let grid_size = tile_size.into();
-    let map_type = TilemapType::default();
-
-    cmds.entity(tilemap_entity).insert(TilemapBundle {
-        grid_size,
-        map_type,
-        size: map_size,
-        storage: tile_storage,
-        texture: TilemapTexture::Single(tiles),
-        tile_size,
-        //transform: get_tilemap_center_transform(&map_size, &grid_size, &map_type, 0.0),
-        ..default()
-    });
 }
 
 pub fn world_to_tile_pos(
