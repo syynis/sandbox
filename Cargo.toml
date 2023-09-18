@@ -18,7 +18,13 @@ lazy_static = "1.4.0"
 serde = "1.0"
 ron = "0.8"
 bevy_xpbd_2d = {git = "https://github.com/Jondolf/bevy_xpbd", branch = "main", features = ["debug-plugin"]}
-
+egui = "0.22.0"
+epaint = "0.22.0"
+bevy_egui = "0.21.0"
+bevy_polyline = "0.7.0"
+rfd = "0.12.0"
+futures-lite = "1.13.0"
+anyhow = "1.0"
 
 [profile.dev]
 opt-level = 1

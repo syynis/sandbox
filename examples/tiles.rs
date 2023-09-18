@@ -6,11 +6,17 @@ use bevy_pancam::PanCamPlugin;
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
 use leafwing_input_manager::prelude::*;
+use sandbox::editor::EditorActions;
+use sandbox::editor::EditorEvent;
+use sandbox::editor::EditorState;
+use sandbox::editor::PickerEvent;
+use sandbox::file_picker;
 use sandbox::input::InputPlugin;
 use sandbox::level::placement::StorageAccess;
-use sandbox::level::serialization::LevelSerializer;
 use sandbox::level::LevelPlugin;
 use sandbox::level::TileCursor;
+use sandbox::ui;
+use sandbox::ui::menu::EditorMenuBar;
 
 fn main() {
     let mut app = App::new();
@@ -20,29 +26,34 @@ fn main() {
         PanCamPlugin::default(),
         InputPlugin,
         DebugLinesPlugin::default(),
-        WorldInspectorPlugin::default(),
+        WorldInspectorPlugin::default().run_if(enable_inspector),
         InputManagerPlugin::<EditorActions>::default(),
         LevelPlugin,
+        file_picker::Plugin::<PickerEvent>::default(),
     ));
-    app.insert_resource(ClearColor(Color::WHITE));
-    app.insert_resource(SelectedTileType::default());
+    app.insert_resource(ClearColor(Color::WHITE))
+        .insert_resource(SelectedTileType::default())
+        .insert_resource(EditorState::default());
+
+    app.add_event::<EditorEvent>().add_event::<PickerEvent>();
     app.add_systems(Startup, (setup, spawn_level));
     app.add_systems(
         Update,
-        (apply_editor_actions, render_tilemap_outline, handle_saving),
+        (
+            apply_editor_actions,
+            render_tilemap_outline,
+            draw_ui,
+            handle_save,
+            handle_save_as,
+            handle_picker_events,
+        ),
     );
 
     app.run();
 }
 
-#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
-pub enum EditorActions {
-    PlaceTile,
-    RemoveTile,
-    CycleMode,
-    New,
-    Save,
-    Load,
+fn enable_inspector(state: Res<EditorState>) -> bool {
+    state.enabled.inspector
 }
 
 fn input_map() -> InputMap<EditorActions> {
@@ -51,9 +62,15 @@ fn input_map() -> InputMap<EditorActions> {
     input_map.insert(MouseButton::Left, PlaceTile);
     input_map.insert(MouseButton::Right, RemoveTile);
     input_map.insert(KeyCode::C, CycleMode);
-    input_map.insert(KeyCode::N, New);
-    input_map.insert(KeyCode::S, Save);
     input_map.insert(KeyCode::L, Load);
+
+    input_map.insert_chord([KeyCode::ControlLeft, KeyCode::N], EditorActions::New);
+    input_map.insert_chord([KeyCode::ControlLeft, KeyCode::S], EditorActions::Save);
+
+    input_map.insert_chord(
+        [KeyCode::ControlLeft, KeyCode::ShiftLeft, KeyCode::S],
+        EditorActions::SaveAs,
+    );
 
     input_map
 }
@@ -133,6 +150,9 @@ fn apply_editor_actions(
     tile_cursor: Res<TileCursor>,
     mut selected_tile: ResMut<SelectedTileType>,
     mut tile_placer: StorageAccess,
+
+    mut event_writer: EventWriter<EditorEvent>,
+    editor_state: Res<EditorState>,
 ) {
     let Some(actions) = actions.get_single().ok() else {
         return;
@@ -153,6 +173,80 @@ fn apply_editor_actions(
     if actions.just_pressed(EditorActions::CycleMode) {
         **selected_tile = selected_tile.next();
     }
+
+    if actions.just_pressed(EditorActions::Save) {
+        info!("Saving map");
+
+        if let Some(path) = &editor_state.current_loaded_path {
+            event_writer.send(EditorEvent::Save(path.clone()));
+        }
+    }
+
+    if actions.just_pressed(EditorActions::Load) {
+        info!("Loading map");
+        if let Some(path) = &editor_state.current_loaded_path {
+            event_writer.send(EditorEvent::Load(path.clone()));
+        }
+    }
+
+    if actions.just_pressed(EditorActions::New) {
+        // TODO
+    }
+}
+
+fn handle_save(mut editor_events: EventReader<EditorEvent>) {
+    for ev in editor_events.iter() {
+        if let EditorEvent::Save(path) = ev {
+            println!("{}", path.as_path().to_str().unwrap());
+        }
+    }
+}
+
+fn handle_save_as(mut cmds: Commands, mut editor_events: EventReader<EditorEvent>) {
+    for ev in editor_events.iter() {
+        if matches!(ev, EditorEvent::SaveAs) {
+            cmds.spawn(file_picker::Picker::save_dialog(PickerEvent::Save(None)).build());
+        }
+    }
+}
+
+fn handle_picker_events(
+    mut picker_events: EventReader<PickerEvent>,
+    mut state: ResMut<EditorState>,
+    mut editor_events: EventWriter<EditorEvent>,
+) {
+    for event in picker_events.iter() {
+        match event {
+            PickerEvent::Save(path) => {
+                let Some(path) = path else { continue };
+                if state.current_loaded_path.is_none() {
+                    state.current_loaded_path = Some(path.clone());
+                }
+
+                editor_events.send(EditorEvent::Save(path.clone()));
+            }
+            PickerEvent::Load(path) => {
+                let Some(path) = path else { continue };
+                if state.current_loaded_path.is_none() {
+                    state.current_loaded_path = Some(path.clone());
+                }
+
+                editor_events.send(EditorEvent::Load(path.clone()));
+            }
+            _ => {}
+        }
+    }
+    picker_events.clear();
+}
+
+pub fn draw_ui(world: &mut World) {
+    use ui::widget::*;
+
+    ui::with_world_and_egui_context(world, |mut world, ctx| {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            basic_widget::<EditorMenuBar>(world, ui, ui.id().with("menubar"));
+        });
+    });
 }
 
 fn render_tilemap_outline(
@@ -180,23 +274,4 @@ fn box_lines(origin: Vec3, size: Vec2) -> [(Vec3, Vec3); 4] {
     let top_down = (max, max - Vec3::new(0., size.y, 0.));
 
     [bottom_right, bottom_up, top_left, top_down]
-}
-
-fn handle_saving(actions: Query<&ActionState<EditorActions>>, mut serializer: LevelSerializer) {
-    let Some(actions) = actions.get_single().ok() else {
-        return;
-    };
-    if actions.just_pressed(EditorActions::Save) {
-        info!("Saving map");
-        serializer.save_to_file();
-    }
-
-    if actions.just_pressed(EditorActions::Load) {
-        info!("Loading map");
-        serializer.load_from_file();
-    }
-
-    if actions.just_pressed(EditorActions::New) {
-        serializer.storage_access.clear();
-    }
 }
