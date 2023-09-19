@@ -1,7 +1,13 @@
-use bevy::prelude::*;
-use bevy_egui::egui;
+use std::sync::Arc;
 
-use crate::ui::widget::{basic_widget, BasicWidget};
+use bevy::{ecs::system::SystemState, prelude::*};
+use bevy_egui::{egui, EguiUserTextures};
+use epaint::TextureId;
+
+use crate::{
+    editor::EditorState,
+    ui::widget::{basic_widget, BasicWidget},
+};
 
 #[derive(Default, Clone)]
 pub struct EditorToolBar;
@@ -22,28 +28,39 @@ impl BasicWidget for EditorToolBar {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct ToolPicker;
+pub struct ToolPicker<'w: 'static> {
+    system_state: SystemState<ResMut<'w, EditorState>>,
+}
 
-impl BasicWidget for ToolPicker {
+impl<'w> BasicWidget for ToolPicker<'w> {
     fn new(world: &mut World, ui: &egui::Ui) -> Self {
-        Self::default()
+        Self {
+            system_state: SystemState::new(world),
+        }
     }
 
     fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, id: egui::Id) {
-        let mock_tools = vec!["place", "remove", "area", "ramp"];
+        let mut editor_state = self.system_state.get_mut(world);
         ui.add(egui::Button::new("TestTool"));
         let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true);
-        let drag = egui::LayerId::new(egui::Order::Tooltip, id.with("dragging"));
 
         ui.with_layout(layout, |ui| {
-            for (idx, tool) in mock_tools.iter().enumerate() {
-                let button = egui::Button::new(tool.to_owned().clone());
-
-                let res = ui.add(button);
-
+            for tool_id in editor_state.toolset.tool_order.clone().iter() {
+                let Some(tool_data) = editor_state.toolset.tools.get(tool_id) else {
+                    warn!("Tried to access tool that doesnt exist. Id: {}", tool_id);
+                    return;
+                };
+                let Some(texture_id) = tool_data.egui_texture_id else {
+                    continue;
+                };
+                let image_button = egui::ImageButton::new(texture_id, epaint::Vec2::new(32., 32.));
+                let res = ui.add(image_button);
+                // TODO how to do this
+                // res.on_hover_text(tool_data.name.clone());
                 if res.clicked() {
-                    println!("{}", tool.to_owned().clone());
+                    println!("{}", tool_data.name.clone());
+                    editor_state.active_tool = *tool_id;
+                    println!("{}", editor_state.active_tool);
                 }
             }
         });

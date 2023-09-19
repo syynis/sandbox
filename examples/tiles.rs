@@ -7,9 +7,9 @@ use bevy_pancam::PanCam;
 use bevy_pancam::PanCamPlugin;
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
-use epaint::TextureId;
-use epaint::TextureManager;
 use leafwing_input_manager::prelude::*;
+use sandbox::editor::tools::paint::PaintTool;
+use sandbox::editor::tools::slope::SlopeTool;
 use sandbox::editor::ui::menu::EditorMenuBar;
 use sandbox::editor::ui::toolbar::EditorToolBar;
 use sandbox::editor::EditorActions;
@@ -43,7 +43,7 @@ fn main() {
         .insert_resource(EditorState::default());
 
     app.add_event::<EditorEvent>().add_event::<PickerEvent>();
-    app.add_systems(Startup, setup);
+    app.add_systems(Startup, (setup, load_egui_icons));
     app.add_systems(
         Update,
         (
@@ -139,6 +139,41 @@ fn setup(mut cmds: Commands) {
         input_map: input_map(),
         ..default()
     },));
+}
+
+fn load_egui_icons(
+    asset_server: Res<AssetServer>,
+    mut editor_state: ResMut<EditorState>,
+    mut egui_user_textures: ResMut<EguiUserTextures>,
+) {
+    // TODO figure out a way to make this more principled
+    let tools = asset_server.load_folder("tools");
+    let mut ids = Vec::new();
+    for tool in tools.unwrap().iter() {
+        let tool_id = egui_user_textures.add_image(tool.clone().typed());
+        // TODO handle cases where folders or non images are in tools folder
+        let file_name = asset_server
+            .get_handle_path(tool)
+            .unwrap()
+            .path()
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        println!("file: {}", file_name);
+        editor_state.toolset.add(&file_name);
+        ids.push(tool_id);
+    }
+    editor_state.tools = vec![
+        Box::new(PaintTool::default()),
+        Box::new(SlopeTool::default()),
+    ];
+
+    for (idx, tool_id) in editor_state.toolset.tool_order.clone().iter().enumerate() {
+        let tool = editor_state.toolset.tools.get_mut(tool_id).unwrap();
+        tool.egui_texture_id = Some(ids[idx]);
+    }
 }
 
 pub struct SpawnMapCommand;

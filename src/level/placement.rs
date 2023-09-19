@@ -11,6 +11,7 @@ pub struct TileUpdateEvent {
     pub modification: TileModification,
 }
 
+// TODO Layer support
 #[derive(SystemParam)]
 pub struct StorageAccess<'w, 's> {
     cmds: Commands<'w, 's>,

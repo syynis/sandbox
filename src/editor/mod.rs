@@ -11,6 +11,10 @@ pub mod ui;
 
 use crate::file_picker;
 
+use self::tools::Tool;
+use self::tools::ToolId;
+use self::tools::ToolSet;
+
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
@@ -22,7 +26,9 @@ impl Plugin for EditorPlugin {
 #[derive(Resource, Debug, Default)]
 pub struct EditorState {
     pub enabled: EnabledUiElements,
-
+    pub tools: Vec<Box<dyn Tool>>,
+    pub toolset: ToolSet,
+    pub active_tool: ToolId,
     pub current_loaded_path: Option<PathBuf>,
     pub unsaved_changes: bool,
     // TODO Layers
