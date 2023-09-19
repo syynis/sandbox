@@ -4,17 +4,15 @@ use bevy_egui::egui;
 use crate::{
     editor::{EditorEvent, EditorState, PickerEvent, WorldMapExt},
     file_picker,
-};
-
-use super::{
-    widget::{basic_widget, BasicWidget},
-    ConfirmationDialog,
+    ui::{
+        widget::{basic_widget, BasicWidget},
+        ConfirmationDialog,
+    },
 };
 
 #[derive(Default, Clone)]
 pub struct EditorMenuBar;
 
-// Inside the ListView widget:
 impl BasicWidget for EditorMenuBar {
     fn new(_world: &mut World, _ui: &egui::Ui) -> Self {
         Self::default()

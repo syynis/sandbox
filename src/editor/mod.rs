@@ -1,11 +1,13 @@
 use anyhow::Context;
 use anyhow::Result;
-use bevy::reflect::erased_serde::Result;
 use bevy_ecs_tilemap::tiles::TileStorage;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
 use leafwing_input_manager::Actionlike;
+
+pub mod tools;
+pub mod ui;
 
 use crate::file_picker;
 
@@ -26,11 +28,21 @@ pub struct EditorState {
     // TODO Layers
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct EnabledUiElements {
     pub inspector: bool,
     pub tool_panel: bool,
     pub egui_debug: bool,
+}
+
+impl Default for EnabledUiElements {
+    fn default() -> Self {
+        Self {
+            inspector: true,
+            tool_panel: true,
+            egui_debug: false,
+        }
+    }
 }
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
@@ -56,8 +68,6 @@ pub enum EditorEvent {
 
 #[derive(Debug, Event)]
 pub enum PickerEvent {
-    New,
-    Close,
     Save(Option<PathBuf>),
     Load(Option<PathBuf>),
 }
@@ -67,8 +77,6 @@ impl file_picker::PickerEvent for PickerEvent {
         use PickerEvent::*;
 
         *self = match *self {
-            New => New,
-            Close => Close,
             Save(_) => Save(Some(result[0].clone())),
             Load(_) => Load(Some(result[0].clone())),
         };

@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::PathBuf};
 
 use bevy::{asset::FileAssetIo, ecs::system::SystemParam, prelude::*};
 use bevy_ecs_tilemap::{
@@ -51,9 +51,8 @@ impl<'w, 's> LevelSerializer<'w, 's> {
         Some(SerializableLevel { tiles })
     }
 
-    pub fn save_to_file(&self) {
+    pub fn save_to_file(&self, path: PathBuf) {
         if let Some(level) = self.save() {
-            let path = FileAssetIo::get_base_path().join("assets/map.ron");
             let ron =
                 ron::ser::to_string_pretty(&level, ron::ser::PrettyConfig::default()).unwrap();
             bevy::log::info!("{}", ron);
@@ -61,8 +60,7 @@ impl<'w, 's> LevelSerializer<'w, 's> {
         }
     }
 
-    pub fn load_from_file(&mut self) {
-        let path = FileAssetIo::get_base_path().join("assets/map.ron");
+    pub fn load_from_file(&mut self, path: PathBuf) {
         if let Some(data) = fs::read_to_string(path).ok() {
             if let Some(level) = ron::from_str::<SerializableLevel>(&data).ok() {
                 self.storage_access.clear();

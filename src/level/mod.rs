@@ -41,7 +41,9 @@ pub fn update_tile_cursor(
     mut tile_cursor: ResMut<TileCursor>,
     tile_storage_q: Query<(&Transform, &TilemapSize)>,
 ) {
-    let (map_transform, map_size) = tile_storage_q.get_single().unwrap();
+    let Ok((map_transform, map_size)) = tile_storage_q.get_single() else {
+        return;
+    };
     if world_cursor.is_changed() {
         let cursor_pos = **world_cursor;
         let cursor_in_map_pos: Vec2 = {

@@ -1,22 +1,29 @@
+use bevy::ecs::system::Command;
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
+use bevy_egui::EguiUserTextures;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::PanCam;
 use bevy_pancam::PanCamPlugin;
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
+use epaint::TextureId;
+use epaint::TextureManager;
 use leafwing_input_manager::prelude::*;
+use sandbox::editor::ui::menu::EditorMenuBar;
+use sandbox::editor::ui::toolbar::EditorToolBar;
 use sandbox::editor::EditorActions;
 use sandbox::editor::EditorEvent;
 use sandbox::editor::EditorState;
 use sandbox::editor::PickerEvent;
+use sandbox::editor::WorldMapExt;
 use sandbox::file_picker;
 use sandbox::input::InputPlugin;
 use sandbox::level::placement::StorageAccess;
+use sandbox::level::serialization::LevelSerializer;
 use sandbox::level::LevelPlugin;
 use sandbox::level::TileCursor;
 use sandbox::ui;
-use sandbox::ui::menu::EditorMenuBar;
 
 fn main() {
     let mut app = App::new();
@@ -36,7 +43,7 @@ fn main() {
         .insert_resource(EditorState::default());
 
     app.add_event::<EditorEvent>().add_event::<PickerEvent>();
-    app.add_systems(Startup, (setup, spawn_level));
+    app.add_systems(Startup, setup);
     app.add_systems(
         Update,
         (
@@ -45,7 +52,11 @@ fn main() {
             draw_ui,
             handle_save,
             handle_save_as,
+            handle_load,
+            handle_close,
+            handle_new,
             handle_picker_events,
+            toggle_inspector,
         ),
     );
 
@@ -54,6 +65,12 @@ fn main() {
 
 fn enable_inspector(state: Res<EditorState>) -> bool {
     state.enabled.inspector
+}
+
+fn toggle_inspector(keys: Res<Input<KeyCode>>, mut state: ResMut<EditorState>) {
+    if keys.just_pressed(KeyCode::F1) {
+        state.enabled.inspector = !state.enabled.inspector;
+    }
 }
 
 fn input_map() -> InputMap<EditorActions> {
@@ -66,6 +83,7 @@ fn input_map() -> InputMap<EditorActions> {
 
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::N], EditorActions::New);
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::S], EditorActions::Save);
+    input_map.insert_chord([KeyCode::ControlLeft, KeyCode::C], EditorActions::Close);
 
     input_map.insert_chord(
         [KeyCode::ControlLeft, KeyCode::ShiftLeft, KeyCode::S],
@@ -123,36 +141,46 @@ fn setup(mut cmds: Commands) {
     },));
 }
 
-fn spawn_level(mut cmds: Commands, assets_server: Res<AssetServer>) {
-    let tiles: Handle<Image> = assets_server.load("tiles2.png");
+pub struct SpawnMapCommand;
 
-    let size = TilemapSize { x: 32, y: 32 };
-    let storage = TileStorage::empty(size);
-    let tilemap_entity = cmds.spawn_empty().id();
+impl Command for SpawnMapCommand {
+    fn apply(self, mut world: &mut World) {
+        if world.get_map().is_ok() {
+            warn!("Tried to spawn world when one already exists");
+            return;
+        }
+        let assets_server = world.resource::<AssetServer>();
+        let tiles: Handle<Image> = assets_server.load("tiles2.png");
 
-    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
-    let grid_size = tile_size.into();
-    let map_type = TilemapType::default();
+        let size = TilemapSize { x: 32, y: 32 };
+        let storage = TileStorage::empty(size);
+        let tilemap_entity = world.spawn_empty().id();
 
-    cmds.entity(tilemap_entity).insert(TilemapBundle {
-        grid_size,
-        map_type,
-        size,
-        storage,
-        texture: TilemapTexture::Single(tiles),
-        tile_size,
-        ..default()
-    });
+        let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
+        let grid_size = tile_size.into();
+        let map_type = TilemapType::default();
+
+        world.entity_mut(tilemap_entity).insert(TilemapBundle {
+            grid_size,
+            map_type,
+            size,
+            storage,
+            texture: TilemapTexture::Single(tiles),
+            tile_size,
+            ..default()
+        });
+    }
 }
 
 fn apply_editor_actions(
+    mut cmds: Commands,
     actions: Query<&ActionState<EditorActions>>,
     tile_cursor: Res<TileCursor>,
     mut selected_tile: ResMut<SelectedTileType>,
     mut tile_placer: StorageAccess,
 
     mut event_writer: EventWriter<EditorEvent>,
-    editor_state: Res<EditorState>,
+    mut editor_state: ResMut<EditorState>,
 ) {
     let Some(actions) = actions.get_single().ok() else {
         return;
@@ -161,12 +189,14 @@ fn apply_editor_actions(
     if actions.pressed(EditorActions::RemoveTile) {
         if let Some(cursor_tile_pos) = **tile_cursor {
             tile_placer.remove(&cursor_tile_pos);
+            editor_state.unsaved_changes = true;
         }
     }
 
     if actions.pressed(EditorActions::PlaceTile) {
         if let Some(cursor_tile_pos) = **tile_cursor {
             tile_placer.replace(&cursor_tile_pos, (**selected_tile).into());
+            editor_state.unsaved_changes = true;
         }
     }
 
@@ -175,37 +205,102 @@ fn apply_editor_actions(
     }
 
     if actions.just_pressed(EditorActions::Save) {
-        info!("Saving map");
-
         if let Some(path) = &editor_state.current_loaded_path {
             event_writer.send(EditorEvent::Save(path.clone()));
         }
     }
 
     if actions.just_pressed(EditorActions::Load) {
-        info!("Loading map");
         if let Some(path) = &editor_state.current_loaded_path {
             event_writer.send(EditorEvent::Load(path.clone()));
+        } else {
+            cmds.spawn(file_picker::Picker::new(PickerEvent::Load(None)).build());
         }
+    }
+
+    if actions.just_pressed(EditorActions::Close) {
+        event_writer.send(EditorEvent::Close);
     }
 
     if actions.just_pressed(EditorActions::New) {
-        // TODO
+        event_writer.send(EditorEvent::New);
     }
 }
 
-fn handle_save(mut editor_events: EventReader<EditorEvent>) {
+fn handle_save(
+    mut editor_events: EventReader<EditorEvent>,
+    mut editor_state: ResMut<EditorState>,
+    map: Query<Entity, With<TileStorage>>,
+    serializer: LevelSerializer,
+) {
+    let Ok(_) = map.get_single() else {
+        return;
+    };
     for ev in editor_events.iter() {
         if let EditorEvent::Save(path) = ev {
             println!("{}", path.as_path().to_str().unwrap());
+            editor_state.unsaved_changes = false;
+            serializer.save_to_file(path.clone());
         }
     }
 }
 
-fn handle_save_as(mut cmds: Commands, mut editor_events: EventReader<EditorEvent>) {
+fn handle_save_as(
+    mut cmds: Commands,
+    mut editor_events: EventReader<EditorEvent>,
+    map: Query<Entity, With<TileStorage>>,
+) {
+    let Ok(_) = map.get_single() else {
+        return;
+    };
     for ev in editor_events.iter() {
         if matches!(ev, EditorEvent::SaveAs) {
             cmds.spawn(file_picker::Picker::save_dialog(PickerEvent::Save(None)).build());
+        }
+    }
+}
+
+fn handle_load(mut editor_events: EventReader<EditorEvent>, mut serializer: LevelSerializer) {
+    for ev in editor_events.iter() {
+        if let EditorEvent::Load(path) = ev {
+            println!("{}", path.as_path().to_str().unwrap());
+            serializer.load_from_file(path.clone());
+        }
+    }
+}
+
+fn handle_close(
+    mut cmds: Commands,
+    mut editor_events: EventReader<EditorEvent>,
+    map: Query<Entity, With<TileStorage>>,
+    mut storage: StorageAccess,
+) {
+    for ev in editor_events.iter() {
+        if matches!(ev, EditorEvent::Close) {
+            let Ok(entity) = map.get_single() else {
+                warn!("Can't close. No map loaded");
+                return;
+            };
+
+            storage.clear();
+            cmds.entity(entity).despawn_recursive();
+        }
+    }
+}
+
+fn handle_new(
+    mut cmds: Commands,
+    mut editor_events: EventReader<EditorEvent>,
+    map: Query<Entity, With<TileStorage>>,
+    mut storage: StorageAccess,
+) {
+    for ev in editor_events.iter() {
+        if matches!(ev, EditorEvent::New) {
+            if let Ok(entity) = map.get_single() {
+                storage.clear();
+                cmds.entity(entity).despawn_recursive();
+            }
+            cmds.add(SpawnMapCommand);
         }
     }
 }
@@ -233,7 +328,6 @@ fn handle_picker_events(
 
                 editor_events.send(EditorEvent::Load(path.clone()));
             }
-            _ => {}
         }
     }
     picker_events.clear();
@@ -246,6 +340,14 @@ pub fn draw_ui(world: &mut World) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             basic_widget::<EditorMenuBar>(world, ui, ui.id().with("menubar"));
         });
+
+        let state = world.resource_mut::<EditorState>();
+        egui::SidePanel::right("right_panel")
+            .resizable(true)
+            .default_width(350.)
+            .show_animated(ctx, state.enabled.tool_panel, |ui| {
+                basic_widget::<EditorToolBar>(world, ui, ui.id().with("panel"));
+            })
     });
 }
 
@@ -253,13 +355,14 @@ fn render_tilemap_outline(
     mut lines: ResMut<DebugLines>,
     tilemap_q: Query<(&TilemapSize, &Transform)>,
 ) {
-    for (size, transform) in tilemap_q.iter() {
-        let size = Vec2::from(size);
-        let size_scaled = size * 16.;
+    let Ok((size, transform)) = tilemap_q.get_single() else {
+        return;
+    };
+    let size = Vec2::from(size);
+    let size_scaled = size * 16.;
 
-        for (start, end) in box_lines(transform.translation, size_scaled) {
-            lines.line_colored(start, end, 0., Color::RED);
-        }
+    for (start, end) in box_lines(transform.translation, size_scaled) {
+        lines.line_colored(start, end, 0., Color::RED);
     }
 }
 

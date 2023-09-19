@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
-pub mod menu;
 pub mod widget;
 pub mod widgets;
 
