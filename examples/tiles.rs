@@ -38,12 +38,12 @@ fn main() {
         LevelPlugin,
         file_picker::Plugin::<PickerEvent>::default(),
     ));
-    app.insert_resource(ClearColor(Color::WHITE))
+    app.insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(SelectedTileType::default())
         .insert_resource(EditorState::default());
 
     app.add_event::<EditorEvent>().add_event::<PickerEvent>();
-    app.add_systems(Startup, (setup, load_egui_icons));
+    app.add_systems(Startup, (setup, load_egui_icons, setup_cursor));
     app.add_systems(
         Update,
         (
@@ -57,6 +57,7 @@ fn main() {
             handle_new,
             handle_picker_events,
             toggle_inspector,
+            move_cursor,
         ),
     );
 
@@ -204,6 +205,46 @@ impl Command for SpawnMapCommand {
             tile_size,
             ..default()
         });
+    }
+}
+
+#[derive(Component)]
+struct CustomCursor;
+
+fn setup_cursor(
+    mut windows: Query<&mut Window>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    let mut window: Mut<Window> = windows.single_mut();
+    window.cursor.visible = false;
+    let cursor_spawn: Vec3 = Vec3::ZERO;
+
+    commands.spawn((
+        ImageBundle {
+            image: asset_server.load("cursor.png").into(),
+            style: Style {
+                position_type: PositionType::Absolute,
+                left: Val::Auto,
+                right: Val::Auto,
+                bottom: Val::Auto,
+                top: Val::Auto,
+                ..default()
+            },
+            z_index: ZIndex::Global(15),
+            transform: Transform::from_translation(cursor_spawn),
+            ..default()
+        },
+        CustomCursor,
+    ));
+}
+
+fn move_cursor(window: Query<&Window>, mut cursor: Query<&mut Style, With<CustomCursor>>) {
+    let window: &Window = window.single();
+    if let Some(position) = window.cursor_position() {
+        let mut img_style = cursor.single_mut();
+        img_style.left = Val::Px(position.x - 8.);
+        img_style.top = Val::Px(position.y - 8.);
     }
 }
 
