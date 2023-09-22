@@ -31,9 +31,11 @@ pub struct StorageAccess<'w, 's> {
 
 impl<'w, 's> StorageAccess<'w, 's> {
     fn set_unchecked(&mut self, pos: &TilePos, id: TileTextureIndex) -> Option<Entity> {
+        println!("test");
         let (tilemap_entity, map_transform, size, mut storage) =
             self.storage.get_single_mut().ok()?;
 
+        println!("test2");
         let tile_entity = self
             .cmds
             .spawn(TileBundle {

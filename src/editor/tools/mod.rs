@@ -1,3 +1,4 @@
+use bevy::prelude::*;
 use bevy::utils::hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +44,21 @@ impl ToolSet {
     }
 }
 
-pub trait Tool: std::fmt::Debug + Sync + Send {
-    fn apply(&mut self, world: &mut bevy::prelude::World);
+#[derive(Resource)]
+struct ToolState<T: 'static + Sync + Send>(HashMap<ToolId, T>);
+
+pub trait Tool: Sync + Send {
+    fn new(world: &mut World) -> Self;
+    fn apply(&mut self, world: &mut World);
+}
+
+pub fn run_tool<T: Tool + 'static>(world: &mut World, id: ToolId) {
+    if !world.contains_resource::<ToolState<T>>() {
+        world.insert_resource(ToolState::<T>(HashMap::new()));
+    }
+
+    world.resource_scope(|world, mut states: Mut<ToolState<T>>| {
+        let state = states.0.entry(id).or_insert(T::new(world));
+        state.apply(world);
+    })
 }

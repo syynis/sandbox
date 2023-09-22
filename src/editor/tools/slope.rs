@@ -1,13 +1,13 @@
-use crate::ui::widget::BasicWidget;
-use bevy_egui::egui;
-
 use super::Tool;
+use bevy::prelude::*;
 
-#[derive(Debug, Default)]
 pub struct SlopeTool;
 
 impl Tool for SlopeTool {
-    fn apply(&mut self, world: &mut bevy::prelude::World) {
+    fn new(world: &mut bevy::prelude::World) -> Self {
+        SlopeTool
+    }
+    fn apply(&mut self, world: &mut World) {
         println!("apply slope");
     }
 }

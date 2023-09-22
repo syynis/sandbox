@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use bevy::{ecs::system::SystemState, prelude::*};
+use bevy::{
+    ecs::system::{SystemParam, SystemState},
+    prelude::*,
+};
 use bevy_egui::{egui, EguiUserTextures};
 use epaint::TextureId;
 
@@ -28,8 +31,12 @@ impl BasicWidget for EditorToolBar {
     }
 }
 
+#[derive(SystemParam)]
+pub struct ToolPickerParams<'w> {
+    pub editor_state: ResMut<'w, EditorState>,
+}
 pub struct ToolPicker<'w: 'static> {
-    system_state: SystemState<ResMut<'w, EditorState>>,
+    system_state: SystemState<ToolPickerParams<'w>>,
 }
 
 impl<'w> BasicWidget for ToolPicker<'w> {
@@ -40,7 +47,7 @@ impl<'w> BasicWidget for ToolPicker<'w> {
     }
 
     fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, id: egui::Id) {
-        let mut editor_state = self.system_state.get_mut(world);
+        let ToolPickerParams { mut editor_state } = self.system_state.get_mut(world);
         ui.add(egui::Button::new("TestTool"));
         let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true);
 
@@ -58,9 +65,7 @@ impl<'w> BasicWidget for ToolPicker<'w> {
                 // TODO how to do this
                 // res.on_hover_text(tool_data.name.clone());
                 if res.clicked() {
-                    println!("{}", tool_data.name.clone());
                     editor_state.active_tool = *tool_id;
-                    println!("{}", editor_state.active_tool);
                 }
             }
         });

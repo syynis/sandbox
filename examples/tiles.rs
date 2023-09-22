@@ -1,4 +1,5 @@
 use bevy::ecs::system::Command;
+use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
 use bevy_egui::EguiUserTextures;
@@ -9,6 +10,7 @@ use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
 use leafwing_input_manager::prelude::*;
 use sandbox::editor::tools::paint::PaintTool;
+use sandbox::editor::tools::run_tool;
 use sandbox::editor::tools::slope::SlopeTool;
 use sandbox::editor::ui::menu::EditorMenuBar;
 use sandbox::editor::ui::toolbar::EditorToolBar;
@@ -22,8 +24,8 @@ use sandbox::input::InputPlugin;
 use sandbox::level::placement::StorageAccess;
 use sandbox::level::serialization::LevelSerializer;
 use sandbox::level::LevelPlugin;
-use sandbox::level::TileCursor;
 use sandbox::ui;
+use sandbox::ui::draw_confirmation_dialog;
 
 fn main() {
     let mut app = App::new();
@@ -48,6 +50,7 @@ fn main() {
         Update,
         (
             apply_editor_actions,
+            apply_tool,
             render_tilemap_outline,
             draw_ui,
             handle_save,
@@ -58,6 +61,7 @@ fn main() {
             handle_picker_events,
             toggle_inspector,
             move_cursor,
+            draw_confirmation_dialog::<EditorEvent>,
         ),
     );
 
@@ -166,10 +170,6 @@ fn load_egui_icons(
         editor_state.toolset.add(&file_name);
         ids.push(tool_id);
     }
-    editor_state.tools = vec![
-        Box::new(PaintTool::default()),
-        Box::new(SlopeTool::default()),
-    ];
 
     for (idx, tool_id) in editor_state.toolset.tool_order.clone().iter().enumerate() {
         let tool = editor_state.toolset.tools.get_mut(tool_id).unwrap();
@@ -186,7 +186,7 @@ impl Command for SpawnMapCommand {
             return;
         }
         let assets_server = world.resource::<AssetServer>();
-        let tiles: Handle<Image> = assets_server.load("tiles2.png");
+        let tiles: Handle<Image> = assets_server.load("tiles.png");
 
         let size = TilemapSize { x: 32, y: 32 };
         let storage = TileStorage::empty(size);
@@ -217,7 +217,7 @@ fn setup_cursor(
     asset_server: Res<AssetServer>,
 ) {
     let mut window: Mut<Window> = windows.single_mut();
-    window.cursor.visible = false;
+    window.cursor.visible = true;
     let cursor_spawn: Vec3 = Vec3::ZERO;
 
     commands.spawn((
@@ -248,37 +248,39 @@ fn move_cursor(window: Query<&Window>, mut cursor: Query<&mut Style, With<Custom
     }
 }
 
+fn apply_tool(
+    world: &mut World,
+    system_param: &mut SystemState<(Query<&ActionState<EditorActions>>, Res<EditorState>)>,
+) {
+    let (action_state, editor_state) = system_param.get_mut(world);
+
+    let Ok(action_state) = action_state.get_single() else {
+        return;
+    };
+
+    if action_state.just_pressed(EditorActions::PlaceTile) {
+        let tool_id = editor_state.active_tool;
+        match tool_id {
+            0 => {
+                run_tool::<PaintTool>(world, tool_id);
+            }
+            1 => {
+                run_tool::<SlopeTool>(world, tool_id);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn apply_editor_actions(
     mut cmds: Commands,
     actions: Query<&ActionState<EditorActions>>,
-    tile_cursor: Res<TileCursor>,
-    mut selected_tile: ResMut<SelectedTileType>,
-    mut tile_placer: StorageAccess,
-
     mut event_writer: EventWriter<EditorEvent>,
-    mut editor_state: ResMut<EditorState>,
+    editor_state: Res<EditorState>,
 ) {
     let Some(actions) = actions.get_single().ok() else {
         return;
     };
-
-    if actions.pressed(EditorActions::RemoveTile) {
-        if let Some(cursor_tile_pos) = **tile_cursor {
-            tile_placer.remove(&cursor_tile_pos);
-            editor_state.unsaved_changes = true;
-        }
-    }
-
-    if actions.pressed(EditorActions::PlaceTile) {
-        if let Some(cursor_tile_pos) = **tile_cursor {
-            tile_placer.replace(&cursor_tile_pos, (**selected_tile).into());
-            editor_state.unsaved_changes = true;
-        }
-    }
-
-    if actions.just_pressed(EditorActions::CycleMode) {
-        **selected_tile = selected_tile.next();
-    }
 
     if actions.just_pressed(EditorActions::Save) {
         if let Some(path) = &editor_state.current_loaded_path {
@@ -412,7 +414,7 @@ fn handle_picker_events(
 pub fn draw_ui(world: &mut World) {
     use ui::widget::*;
 
-    ui::with_world_and_egui_context(world, |mut world, ctx| {
+    ui::with_world_and_egui_context(world, |world, ctx| {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             basic_widget::<EditorMenuBar>(world, ui, ui.id().with("menubar"));
         });

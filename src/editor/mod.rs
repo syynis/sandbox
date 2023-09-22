@@ -23,15 +23,26 @@ impl Plugin for EditorPlugin {
     }
 }
 
-#[derive(Resource, Debug, Default)]
+#[derive(Resource)]
 pub struct EditorState {
     pub enabled: EnabledUiElements,
-    pub tools: Vec<Box<dyn Tool>>,
     pub toolset: ToolSet,
     pub active_tool: ToolId,
     pub current_loaded_path: Option<PathBuf>,
     pub unsaved_changes: bool,
     // TODO Layers
+}
+
+impl Default for EditorState {
+    fn default() -> Self {
+        Self {
+            enabled: EnabledUiElements::default(),
+            toolset: ToolSet::default(),
+            active_tool: 0,
+            current_loaded_path: None,
+            unsaved_changes: false,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, ui::debug::print_ui_layout_tree};
 use bevy_egui::egui;
 
 use crate::{
@@ -56,6 +56,7 @@ impl BasicWidget for New {
         }
 
         let state = world.resource::<EditorState>();
+
         if state.unsaved_changes {
             let (save_label, save_event) = match &state.current_loaded_path {
                 Some(path) => ("Save", EditorEvent::Save(path.clone())),
@@ -69,10 +70,11 @@ impl BasicWidget for New {
             .button("Discard Changes", Some(EditorEvent::New))
             .button(save_label, Some(save_event));
 
+            println!("test unsaved");
             world.spawn(dialog);
+        } else {
+            world.send_event(EditorEvent::New);
         }
-
-        world.send_event(EditorEvent::New);
 
         ui.close_menu();
     }
