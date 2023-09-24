@@ -44,6 +44,7 @@ fn main() {
         .insert_resource(SelectedTileType::default())
         .insert_resource(EditorState::default());
 
+    app.register_type::<EditorState>();
     app.add_event::<EditorEvent>().add_event::<PickerEvent>();
     app.add_systems(Startup, (setup, load_egui_icons, setup_cursor));
     app.add_systems(
@@ -53,12 +54,12 @@ fn main() {
             apply_tool,
             render_tilemap_outline,
             draw_ui,
-            handle_save,
-            handle_save_as,
-            handle_load,
-            handle_close,
-            handle_new,
-            handle_picker_events,
+            handle_save.run_if(on_event::<EditorEvent>()),
+            handle_save_as.run_if(on_event::<EditorEvent>()),
+            handle_load.run_if(on_event::<EditorEvent>()),
+            handle_close.run_if(on_event::<EditorEvent>()),
+            handle_new.run_if(on_event::<EditorEvent>()),
+            handle_picker_events.run_if(on_event::<PickerEvent>()),
             toggle_inspector,
             move_cursor,
             draw_confirmation_dialog::<EditorEvent>,
@@ -296,6 +297,10 @@ fn apply_editor_actions(
         }
     }
 
+    if actions.just_pressed(EditorActions::SaveAs) {
+        event_writer.send(EditorEvent::SaveAs);
+    }
+
     if actions.just_pressed(EditorActions::Close) {
         event_writer.send(EditorEvent::Close);
     }
@@ -352,6 +357,7 @@ fn handle_close(
     mut editor_events: EventReader<EditorEvent>,
     map: Query<Entity, With<TileStorage>>,
     mut storage: StorageAccess,
+    mut editor_state: ResMut<EditorState>,
 ) {
     for ev in editor_events.iter() {
         if matches!(ev, EditorEvent::Close) {
@@ -362,6 +368,7 @@ fn handle_close(
 
             storage.clear();
             cmds.entity(entity).despawn_recursive();
+            editor_state.reset_path();
         }
     }
 }
@@ -371,6 +378,7 @@ fn handle_new(
     mut editor_events: EventReader<EditorEvent>,
     map: Query<Entity, With<TileStorage>>,
     mut storage: StorageAccess,
+    mut editor_state: ResMut<EditorState>,
 ) {
     for ev in editor_events.iter() {
         if matches!(ev, EditorEvent::New) {
@@ -379,6 +387,7 @@ fn handle_new(
                 cmds.entity(entity).despawn_recursive();
             }
             cmds.add(SpawnMapCommand);
+            editor_state.reset_path();
         }
     }
 }

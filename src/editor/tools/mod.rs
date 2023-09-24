@@ -8,15 +8,16 @@ pub mod slope;
 pub type ToolId = usize;
 
 // TODO think about config format for toolkit and if its useful
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Reflect)]
 pub struct ToolData {
     pub id: ToolId,
     pub name: String,
     #[serde(skip)]
+    #[reflect(ignore)]
     pub egui_texture_id: Option<egui::TextureId>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Reflect)]
 pub struct ToolSet {
     pub tools: HashMap<ToolId, ToolData>,
     pub tool_order: Vec<ToolId>,

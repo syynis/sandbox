@@ -23,7 +23,8 @@ impl Plugin for EditorPlugin {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 pub struct EditorState {
     pub enabled: EnabledUiElements,
     pub toolset: ToolSet,
@@ -31,6 +32,13 @@ pub struct EditorState {
     pub current_loaded_path: Option<PathBuf>,
     pub unsaved_changes: bool,
     // TODO Layers
+}
+
+impl EditorState {
+    pub fn reset_path(&mut self) {
+        self.current_loaded_path = None;
+        self.unsaved_changes = false;
+    }
 }
 
 impl Default for EditorState {
@@ -45,7 +53,7 @@ impl Default for EditorState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 pub struct EnabledUiElements {
     pub inspector: bool,
     pub tool_panel: bool,
