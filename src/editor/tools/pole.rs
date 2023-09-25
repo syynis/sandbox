@@ -3,14 +3,16 @@ use bevy::{
     prelude::*,
 };
 use bevy_ecs_tilemap::prelude::*;
+use bevy_prototype_debug_lines::DebugLines;
 use leafwing_input_manager::prelude::*;
 
 use crate::{
     editor::{EditorState, ToolActions},
     level::{
         placement::{StorageAccess, TileProperties},
-        TileCursor,
+        tpos_wpos, TileCursor,
     },
+    util::box_lines,
 };
 
 use super::Tool;
@@ -21,6 +23,7 @@ struct PoleToolParams<'w, 's> {
     pub tile_cursor: Res<'w, TileCursor>,
     pub editor_state: ResMut<'w, EditorState>,
     pub action_state: Query<'w, 's, &'static ActionState<ToolActions>>,
+    pub lines: ResMut<'w, DebugLines>,
 }
 
 pub struct PoleTool<'w: 'static, 's: 'static> {
@@ -71,7 +74,12 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
     }
 
     fn update(&mut self, world: &mut World) {
-        let PoleToolParams { action_state, .. } = self.system_state.get_mut(world);
+        let PoleToolParams {
+            action_state,
+            tile_cursor,
+            mut lines,
+            ..
+        } = self.system_state.get_mut(world);
 
         let Ok(action_state) = action_state.get_single() else {
             return;
@@ -79,6 +87,15 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
 
         if action_state.just_pressed(ToolActions::CycleMode) {
             self.place_horizontal = !self.place_horizontal;
+        }
+
+        // TODO every system wants this think about best way to factor this out
+        if let Some(tile_cursor) = **tile_cursor {
+            let wpos = tpos_wpos(&tile_cursor);
+
+            for (start, end) in box_lines(wpos.extend(0.), Vec2::new(16., 16.)) {
+                lines.line_colored(start, end, 0., Color::RED);
+            }
         }
         self.system_state.apply(world);
     }

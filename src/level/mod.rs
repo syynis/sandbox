@@ -77,3 +77,7 @@ pub fn from_world_pos(world_pos: &Vec2, size: &TilemapSize) -> Option<TilePos> {
 
     TilePos::from_i32_pair(x, y, size)
 }
+
+pub fn tpos_wpos(tpos: &TilePos) -> Vec2 {
+    tpos.center_in_world(&TilemapGridSize { x: 16., y: 16. }, &TilemapType::Square)
+}
