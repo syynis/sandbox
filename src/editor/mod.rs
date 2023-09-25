@@ -39,6 +39,10 @@ impl EditorState {
         self.current_loaded_path = None;
         self.unsaved_changes = false;
     }
+
+    pub fn next_tool(&mut self) {
+        self.active_tool = (self.active_tool + 1) % self.toolset.tools.len();
+    }
 }
 
 impl Default for EditorState {
@@ -72,14 +76,19 @@ impl Default for EnabledUiElements {
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 pub enum EditorActions {
-    PlaceTile,
-    RemoveTile,
-    CycleMode,
-    New,
+    ApplyTool,
+    Area,
     Close,
+    CycleTool,
+    Load,
+    New,
     Save,
     SaveAs,
-    Load,
+}
+
+#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
+pub enum ToolActions {
+    CycleMode,
 }
 
 #[derive(Debug, Clone, Event)]

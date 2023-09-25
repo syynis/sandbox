@@ -9,15 +9,20 @@ use bevy_pancam::PanCamPlugin;
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
 use leafwing_input_manager::prelude::*;
+use sandbox::editor::tools::area::AreaTool;
+use sandbox::editor::tools::erase::EraseTool;
 use sandbox::editor::tools::paint::PaintTool;
+use sandbox::editor::tools::pole::PoleTool;
 use sandbox::editor::tools::run_tool;
 use sandbox::editor::tools::slope::SlopeTool;
+use sandbox::editor::tools::update_tool;
 use sandbox::editor::ui::menu::EditorMenuBar;
 use sandbox::editor::ui::toolbar::EditorToolBar;
 use sandbox::editor::EditorActions;
 use sandbox::editor::EditorEvent;
 use sandbox::editor::EditorState;
 use sandbox::editor::PickerEvent;
+use sandbox::editor::ToolActions;
 use sandbox::editor::WorldMapExt;
 use sandbox::file_picker;
 use sandbox::input::InputPlugin;
@@ -37,14 +42,15 @@ fn main() {
         DebugLinesPlugin::default(),
         WorldInspectorPlugin::default().run_if(enable_inspector),
         InputManagerPlugin::<EditorActions>::default(),
+        InputManagerPlugin::<ToolActions>::default(),
         LevelPlugin,
         file_picker::Plugin::<PickerEvent>::default(),
     ));
     app.insert_resource(ClearColor(Color::DARK_GRAY))
-        .insert_resource(SelectedTileType::default())
         .insert_resource(EditorState::default());
 
     app.register_type::<EditorState>();
+
     app.add_event::<EditorEvent>().add_event::<PickerEvent>();
     app.add_systems(Startup, (setup, load_egui_icons, setup_cursor));
     app.add_systems(
@@ -79,14 +85,16 @@ fn toggle_inspector(keys: Res<Input<KeyCode>>, mut state: ResMut<EditorState>) {
     }
 }
 
-fn input_map() -> InputMap<EditorActions> {
+fn editor_actions_map() -> InputMap<EditorActions> {
     use EditorActions::*;
     let mut input_map = InputMap::default();
-    input_map.insert(MouseButton::Left, PlaceTile);
-    input_map.insert(MouseButton::Right, RemoveTile);
-    input_map.insert(KeyCode::C, CycleMode);
+
+    input_map.insert(MouseButton::Left, ApplyTool);
+    input_map.insert(MouseButton::Right, ApplyTool);
+    input_map.insert(KeyCode::C, CycleTool);
     input_map.insert(KeyCode::L, Load);
 
+    input_map.insert_modified(Modifier::Control, MouseButton::Left, EditorActions::Area);
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::N], EditorActions::New);
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::S], EditorActions::Save);
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::C], EditorActions::Close);
@@ -99,37 +107,15 @@ fn input_map() -> InputMap<EditorActions> {
     input_map
 }
 
-// NOTE currently needs to be in same order as spritesheet
-#[derive(Clone, Copy, Default)]
-pub enum TileType {
-    #[default]
-    Square = 0,
-    Ramp,
-    PoleV,
-    PoleH,
-}
+fn tool_actions_map() -> InputMap<ToolActions> {
+    use ToolActions::*;
 
-impl TileType {
-    pub fn next(&self) -> Self {
-        use TileType::*;
-        match self {
-            Square => Ramp,
-            Ramp => PoleV,
-            PoleV => PoleH,
-            PoleH => Square,
-        }
-    }
-}
+    let mut input_map = InputMap::default();
 
-impl Into<TileTextureIndex> for TileType {
-    fn into(self) -> TileTextureIndex {
-        let index = self as u32;
-        TileTextureIndex(index)
-    }
-}
+    input_map.insert(KeyCode::T, CycleMode);
 
-#[derive(Resource, Clone, Copy, Default, Deref, DerefMut)]
-pub struct SelectedTileType(TileType);
+    input_map
+}
 
 fn setup(mut cmds: Commands) {
     cmds.spawn((
@@ -142,7 +128,11 @@ fn setup(mut cmds: Commands) {
     ));
 
     cmds.spawn((InputManagerBundle::<EditorActions> {
-        input_map: input_map(),
+        input_map: editor_actions_map(),
+        ..default()
+    },));
+    cmds.spawn((InputManagerBundle::<ToolActions> {
+        input_map: tool_actions_map(),
         ..default()
     },));
 }
@@ -253,23 +243,44 @@ fn apply_tool(
     world: &mut World,
     system_param: &mut SystemState<(Query<&ActionState<EditorActions>>, Res<EditorState>)>,
 ) {
-    let (action_state, editor_state) = system_param.get_mut(world);
+    let (action_state, editor_state) = system_param.get(world);
 
     let Ok(action_state) = action_state.get_single() else {
         return;
     };
 
-    if action_state.just_pressed(EditorActions::PlaceTile) {
-        let tool_id = editor_state.active_tool;
-        match tool_id {
-            0 => {
-                run_tool::<PaintTool>(world, tool_id);
-            }
-            1 => {
-                run_tool::<SlopeTool>(world, tool_id);
-            }
+    let (pressed, released) = (
+        action_state.pressed(EditorActions::ApplyTool),
+        action_state.just_released(EditorActions::ApplyTool),
+    );
+
+    let active_tool_id = editor_state.active_tool;
+
+    if pressed {
+        match active_tool_id {
+            0 => run_tool::<AreaTool>(world, active_tool_id),
+            1 => run_tool::<PaintTool>(world, active_tool_id),
+            2 => run_tool::<PoleTool>(world, active_tool_id),
+            3 => run_tool::<SlopeTool>(world, active_tool_id),
+            4 => run_tool::<EraseTool>(world, active_tool_id),
             _ => {}
         }
+    }
+
+    if released {
+        match active_tool_id {
+            0 => run_tool::<AreaTool>(world, active_tool_id),
+            _ => {}
+        }
+    }
+
+    match active_tool_id {
+        0 => update_tool::<AreaTool>(world, active_tool_id),
+        1 => update_tool::<PaintTool>(world, active_tool_id),
+        2 => update_tool::<PoleTool>(world, active_tool_id),
+        3 => update_tool::<SlopeTool>(world, active_tool_id),
+        4 => update_tool::<EraseTool>(world, active_tool_id),
+        _ => {}
     }
 }
 
@@ -277,7 +288,7 @@ fn apply_editor_actions(
     mut cmds: Commands,
     actions: Query<&ActionState<EditorActions>>,
     mut event_writer: EventWriter<EditorEvent>,
-    editor_state: Res<EditorState>,
+    mut editor_state: ResMut<EditorState>,
 ) {
     let Some(actions) = actions.get_single().ok() else {
         return;
@@ -295,6 +306,10 @@ fn apply_editor_actions(
         } else {
             cmds.spawn(file_picker::Picker::new(PickerEvent::Load(None)).build());
         }
+    }
+
+    if actions.just_pressed(EditorActions::CycleTool) {
+        editor_state.next_tool();
     }
 
     if actions.just_pressed(EditorActions::SaveAs) {

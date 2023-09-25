@@ -1,14 +1,10 @@
 use std::{fs, path::PathBuf};
 
-use bevy::{asset::FileAssetIo, ecs::system::SystemParam, prelude::*};
-use bevy_ecs_tilemap::{
-    tiles::{TileFlip, TilePos, TileStorage, TileTextureIndex},
-    *,
-};
-use ron::ser;
+use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy_ecs_tilemap::tiles::{TileFlip, TilePos, TileTextureIndex};
 use serde::{Deserialize, Serialize};
 
-use super::placement::StorageAccess;
+use super::placement::{StorageAccess, TileProperties};
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "TilePos")]
@@ -21,12 +17,22 @@ pub struct TilePosRef {
 #[serde(remote = "TileTextureIndex")]
 pub struct TileTextureIndexRef(pub u32);
 
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "TileFlip")]
+pub struct TileFlipRef {
+    pub x: bool,
+    pub y: bool,
+    pub d: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SerializableTile {
     #[serde(with = "TilePosRef")]
     pub pos: TilePos,
     #[serde(with = "TileTextureIndexRef")]
     pub id: TileTextureIndex,
+    #[serde(with = "TileFlipRef")]
+    pub flip: TileFlip,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -36,7 +42,15 @@ pub struct SerializableLevel {
 
 #[derive(SystemParam)]
 pub struct LevelSerializer<'w, 's> {
-    tiles: Query<'w, 's, (&'static TilePos, &'static TileTextureIndex)>,
+    tiles: Query<
+        'w,
+        's,
+        (
+            &'static TilePos,
+            &'static TileTextureIndex,
+            &'static TileFlip,
+        ),
+    >,
     pub storage_access: StorageAccess<'w, 's>,
 }
 
@@ -44,8 +58,12 @@ impl<'w, 's> LevelSerializer<'w, 's> {
     pub fn save(&self) -> Option<SerializableLevel> {
         let mut tiles = Vec::new();
 
-        for (pos, id) in self.tiles.iter() {
-            tiles.push(SerializableTile { pos: *pos, id: *id });
+        for (pos, id, flip) in self.tiles.iter() {
+            tiles.push(SerializableTile {
+                pos: *pos,
+                id: *id,
+                flip: *flip,
+            });
         }
 
         Some(SerializableLevel { tiles })
@@ -65,7 +83,13 @@ impl<'w, 's> LevelSerializer<'w, 's> {
             if let Some(level) = ron::from_str::<SerializableLevel>(&data).ok() {
                 self.storage_access.clear();
                 for tile in level.tiles {
-                    self.storage_access.replace(&tile.pos, tile.id);
+                    self.storage_access.replace(
+                        &tile.pos,
+                        TileProperties {
+                            id: tile.id,
+                            flip: tile.flip,
+                        },
+                    );
                 }
             }
         }

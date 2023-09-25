@@ -1,8 +1,9 @@
 use crate::editor::EditorState;
-use crate::level::placement::StorageAccess;
+use crate::level::placement::{StorageAccess, TileProperties};
 use crate::level::TileCursor;
 use bevy::ecs::system::{SystemParam, SystemState};
 use bevy::prelude::*;
+use bevy_ecs_tilemap::prelude::*;
 
 use super::Tool;
 
@@ -34,13 +35,17 @@ impl<'w, 's> Tool for PaintTool<'w, 's> {
             return;
         };
 
-        println!("apply paint");
         tiles.replace(
             &cursor_tile_pos,
-            bevy_ecs_tilemap::tiles::TileTextureIndex(0),
+            TileProperties {
+                id: TileTextureIndex(0),
+                flip: TileFlip::default(),
+            },
         );
+
         editor_state.unsaved_changes = true;
         // TODO need to do this in every system, maybe there is some way to hardcode this?
         self.system_state.apply(world);
     }
+    fn update(&mut self, world: &mut World) {}
 }

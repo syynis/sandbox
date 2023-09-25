@@ -19,9 +19,8 @@ pub fn update_cursor_pos(
     mut cursor_moved_events: EventReader<CursorMoved>,
     mut cursor_pos: ResMut<CursorPos>,
 ) {
-    let (camera, transform) = match camera_query.get_single() {
-        Ok((c, t)) => (c, t),
-        Err(e) => return,
+    let Ok((camera, transform)) = camera_query.get_single() else {
+        return;
     };
 
     for moved_event in cursor_moved_events.iter() {
@@ -31,6 +30,6 @@ pub fn update_cursor_pos(
         else {
             return;
         };
-        *cursor_pos = CursorPos(new);
+        cursor_pos.0 = new;
     }
 }

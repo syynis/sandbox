@@ -1,4 +1,4 @@
-use bevy::{prelude::*, ui::debug::print_ui_layout_tree};
+use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::{

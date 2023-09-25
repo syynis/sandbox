@@ -1,11 +1,8 @@
-use std::sync::Arc;
-
 use bevy::{
     ecs::system::{SystemParam, SystemState},
     prelude::*,
 };
-use bevy_egui::{egui, EguiUserTextures};
-use epaint::TextureId;
+use bevy_egui::egui;
 
 use crate::{
     editor::EditorState,
@@ -48,7 +45,6 @@ impl<'w> BasicWidget for ToolPicker<'w> {
 
     fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, id: egui::Id) {
         let ToolPickerParams { mut editor_state } = self.system_state.get_mut(world);
-        ui.add(egui::Button::new("TestTool"));
         let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true);
 
         ui.with_layout(layout, |ui| {
@@ -62,9 +58,9 @@ impl<'w> BasicWidget for ToolPicker<'w> {
                 };
                 let image_button = egui::ImageButton::new(texture_id, epaint::Vec2::new(32., 32.));
                 let res = ui.add(image_button);
-                // TODO how to do this
-                // res.on_hover_text(tool_data.name.clone());
-                if res.clicked() {
+
+                res.clone().on_hover_text(tool_data.name.clone());
+                if res.clone().clicked() {
                     editor_state.active_tool = *tool_id;
                 }
             }
