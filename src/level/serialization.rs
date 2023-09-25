@@ -31,8 +31,12 @@ pub struct SerializableTile {
     pub pos: TilePos,
     #[serde(with = "TileTextureIndexRef")]
     pub id: TileTextureIndex,
-    #[serde(with = "TileFlipRef")]
+    #[serde(with = "TileFlipRef", default, skip_serializing_if = "is_default_flip")]
     pub flip: TileFlip,
+}
+
+fn is_default_flip(flip: &TileFlip) -> bool {
+    !flip.x && !flip.y && !flip.d
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
