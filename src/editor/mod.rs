@@ -11,9 +11,7 @@ pub mod ui;
 
 use crate::file_picker;
 
-use self::tools::Tool;
-use self::tools::ToolId;
-use self::tools::ToolSet;
+use self::tools::{ToolId, ToolSet};
 
 pub struct EditorPlugin;
 

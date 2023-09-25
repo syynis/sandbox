@@ -30,6 +30,7 @@ use sandbox::file_picker;
 use sandbox::input::InputPlugin;
 use sandbox::level::placement::StorageAccess;
 use sandbox::level::serialization::LevelSerializer;
+use sandbox::level::tpos_wpos;
 use sandbox::level::LevelPlugin;
 use sandbox::ui;
 use sandbox::ui::draw_confirmation_dialog;
@@ -508,14 +509,14 @@ fn spawn_collisions(
                     corner,
                 )
             };
-            let center =
-                pos.center_in_world(&TilemapGridSize { x: 16., y: 16. }, &TilemapType::Square);
+
+            let center = tpos_wpos(pos);
 
             let dir = match (flip.x, flip.y) {
-                (false, false) => Vector::new(-1., 1.),
-                (true, false) => Vector::new(1., 1.),
-                (false, true) => Vector::new(-1., -1.),
-                (true, true) => Vector::new(1., -1.),
+                (false, false) => Vector::new(1., 1.),
+                (true, false) => Vector::new(-1., 1.),
+                (false, true) => Vector::new(1., -1.),
+                (true, true) => Vector::new(-1., -1.),
             };
             let collider = match id.0 {
                 0 => Collider::cuboid(16., 16.),

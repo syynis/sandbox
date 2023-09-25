@@ -70,7 +70,7 @@ impl<'w, 's> Tool for SlopeTool<'w, 's> {
 
         let mut flip = TileFlip::default();
 
-        if west {
+        if east {
             flip.x = true;
         }
         if north {
