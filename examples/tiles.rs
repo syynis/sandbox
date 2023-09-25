@@ -8,6 +8,8 @@ use bevy_pancam::PanCam;
 use bevy_pancam::PanCamPlugin;
 use bevy_prototype_debug_lines::DebugLines;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
+use bevy_xpbd_2d::math::Vector;
+use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
 use sandbox::editor::tools::area::AreaTool;
 use sandbox::editor::tools::erase::EraseTool;
@@ -45,6 +47,7 @@ fn main() {
         InputManagerPlugin::<ToolActions>::default(),
         LevelPlugin,
         file_picker::Plugin::<PickerEvent>::default(),
+        PhysicsPlugins::default(),
     ));
     app.insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(EditorState::default());
@@ -69,6 +72,7 @@ fn main() {
             toggle_inspector,
             move_cursor,
             draw_confirmation_dialog::<EditorEvent>,
+            spawn_collisions,
         ),
     );
 
@@ -446,7 +450,7 @@ pub fn draw_ui(world: &mut World) {
         let state = world.resource_mut::<EditorState>();
         egui::SidePanel::right("right_panel")
             .resizable(true)
-            .default_width(350.)
+            .default_width(250.)
             .show_animated(ctx, state.enabled.tool_panel, |ui| {
                 basic_widget::<EditorToolBar>(world, ui, ui.id().with("panel"));
             })
@@ -464,7 +468,7 @@ fn render_tilemap_outline(
     let size_scaled = size * 16.;
 
     for (start, end) in box_lines(transform.translation, size_scaled) {
-        lines.line_colored(start, end, 0., Color::RED);
+        lines.line_colored(start, end, 0., Color::WHITE);
     }
 }
 
@@ -479,4 +483,49 @@ fn box_lines(origin: Vec3, size: Vec2) -> [(Vec3, Vec3); 4] {
     let top_down = (max, max - Vec3::new(0., size.y, 0.));
 
     [bottom_right, bottom_up, top_left, top_down]
+}
+
+fn spawn_collisions(
+    keys: Res<Input<KeyCode>>,
+    mut cmds: Commands,
+    tiles: StorageAccess,
+    tiles_pos: Query<(&TilePos, &TileTextureIndex, &TileFlip)>,
+) {
+    if keys.just_pressed(KeyCode::Q) {
+        tiles.storage().unwrap().iter().for_each(|tile_entity| {
+            let Some(tile_entity) = tile_entity else {
+                return;
+            };
+
+            let Ok((pos, id, flip)) = tiles_pos.get(*tile_entity) else {
+                return;
+            };
+
+            let make_right_triangle = |corner, size, dir: Vector| -> Collider {
+                Collider::triangle(
+                    corner + Vector::X * size * dir.x,
+                    corner + Vector::Y * size * dir.y,
+                    corner,
+                )
+            };
+            let center =
+                pos.center_in_world(&TilemapGridSize { x: 16., y: 16. }, &TilemapType::Square);
+
+            let dir = match (flip.x, flip.y) {
+                (false, false) => Vector::new(-1., 1.),
+                (true, false) => Vector::new(1., 1.),
+                (false, true) => Vector::new(-1., -1.),
+                (true, true) => Vector::new(1., -1.),
+            };
+            let collider = match id.0 {
+                0 => Collider::cuboid(16., 16.),
+                1 => make_right_triangle(Vector::new(-8., -8.) * dir, 16., dir),
+                2 => Collider::cuboid(2., 16.),
+                3 => Collider::cuboid(16., 2.),
+                _ => unreachable!(),
+            };
+            cmds.entity(*tile_entity)
+                .insert((RigidBody::Static, collider, Position::from(center)));
+        });
+    }
 }
