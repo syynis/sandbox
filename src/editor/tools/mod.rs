@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub mod area;
 pub mod erase;
 pub mod paint;
+pub mod platform;
 pub mod pole;
 pub mod slope;
 

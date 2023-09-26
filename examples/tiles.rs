@@ -14,6 +14,7 @@ use leafwing_input_manager::prelude::*;
 use sandbox::editor::tools::area::AreaTool;
 use sandbox::editor::tools::erase::EraseTool;
 use sandbox::editor::tools::paint::PaintTool;
+use sandbox::editor::tools::platform::PlatformTool;
 use sandbox::editor::tools::pole::PoleTool;
 use sandbox::editor::tools::run_tool;
 use sandbox::editor::tools::slope::SlopeTool;
@@ -37,6 +38,7 @@ use sandbox::level::tpos_wpos;
 use sandbox::level::LevelPlugin;
 use sandbox::level::TileCursor;
 use sandbox::phys::movement::LookDir;
+use sandbox::phys::terrain::Platform;
 use sandbox::phys::terrain::Terrain;
 use sandbox::phys::PhysPlugin;
 use sandbox::ui;
@@ -307,28 +309,31 @@ fn apply_tool(
 
     if pressed {
         match active_tool_id {
-            0 => run_tool::<AreaTool>(world, active_tool_id),
-            1 => run_tool::<PaintTool>(world, active_tool_id),
-            2 => run_tool::<PoleTool>(world, active_tool_id),
-            3 => run_tool::<SlopeTool>(world, active_tool_id),
-            4 => run_tool::<EraseTool>(world, active_tool_id),
+            0 => run_tool::<PlatformTool>(world, active_tool_id),
+            1 => run_tool::<AreaTool>(world, active_tool_id),
+            2 => run_tool::<PaintTool>(world, active_tool_id),
+            3 => run_tool::<PoleTool>(world, active_tool_id),
+            4 => run_tool::<SlopeTool>(world, active_tool_id),
+            5 => run_tool::<EraseTool>(world, active_tool_id),
             _ => {}
         }
     }
 
     if released {
         match active_tool_id {
-            0 => run_tool::<AreaTool>(world, active_tool_id),
+            1 => run_tool::<AreaTool>(world, active_tool_id),
             _ => {}
         }
     }
 
     match active_tool_id {
-        0 => update_tool::<AreaTool>(world, active_tool_id),
-        1 => update_tool::<PaintTool>(world, active_tool_id),
-        2 => update_tool::<PoleTool>(world, active_tool_id),
-        3 => update_tool::<SlopeTool>(world, active_tool_id),
-        4 => update_tool::<EraseTool>(world, active_tool_id),
+        0 => update_tool::<PlatformTool>(world, active_tool_id),
+        1 => update_tool::<AreaTool>(world, active_tool_id),
+        2 => update_tool::<PaintTool>(world, active_tool_id),
+        3 => update_tool::<PoleTool>(world, active_tool_id),
+        4 => update_tool::<SlopeTool>(world, active_tool_id),
+        5 => update_tool::<EraseTool>(world, active_tool_id),
+
         _ => {}
     }
 }
@@ -567,14 +572,20 @@ fn spawn_collisions(
                 1 => make_right_triangle(Vector::new(-8., -8.) * dir, 16., dir),
                 2 => Collider::cuboid(2., 16.),
                 3 => Collider::cuboid(16., 2.),
+                5 => Collider::cuboid(16., 4.),
                 _ => unreachable!(),
             };
+
             cmds.entity(*tile_entity).insert((
                 RigidBody::Static,
                 collider,
                 Position::from(center),
                 Terrain,
             ));
+            if id.0 == 5 {
+                cmds.entity(*tile_entity)
+                    .insert((Platform::default(), Position::from(center + Vector::Y * 5.)));
+            }
         });
     }
 }

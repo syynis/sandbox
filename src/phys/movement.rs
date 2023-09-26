@@ -4,7 +4,7 @@ use bevy::{prelude::*, time::Stopwatch, utils::hashbrown::HashMap};
 use bevy_xpbd_2d::{math::Vector, prelude::*};
 use leafwing_input_manager::prelude::*;
 
-use super::terrain::Terrain;
+use super::terrain::{Pole, Terrain};
 
 pub struct MovementPlugin;
 
@@ -184,3 +184,8 @@ fn movement(
         }
     }
 }
+
+#[derive(Component)]
+pub struct PoleClimb;
+
+fn handle_pole_climb(poles: Query<&Pole>, player: Query<(Entity), With<Controllable>>) {}

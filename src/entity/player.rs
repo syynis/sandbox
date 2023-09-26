@@ -4,7 +4,10 @@ use bevy::{
 };
 use bevy_xpbd_2d::{math::Vector, prelude::*};
 
-use crate::phys::movement::{Control, LookDir};
+use crate::phys::{
+    movement::{Control, LookDir},
+    terrain::PlatformPass,
+};
 
 #[derive(WorldQuery)]
 pub struct PlayerQuery {
@@ -41,6 +44,7 @@ impl Command for SpawnPlayerCommand {
             Control::default(),
             Friction::new(0.),
             LookDir::Right,
+            PlatformPass,
         ));
     }
 }
