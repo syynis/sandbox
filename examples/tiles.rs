@@ -26,12 +26,19 @@ use sandbox::editor::EditorState;
 use sandbox::editor::PickerEvent;
 use sandbox::editor::ToolActions;
 use sandbox::editor::WorldMapExt;
+use sandbox::entity::player::DespawnPlayerCommand;
+use sandbox::entity::player::Player;
+use sandbox::entity::player::SpawnPlayerCommand;
 use sandbox::file_picker;
 use sandbox::input::InputPlugin;
 use sandbox::level::placement::StorageAccess;
 use sandbox::level::serialization::LevelSerializer;
 use sandbox::level::tpos_wpos;
 use sandbox::level::LevelPlugin;
+use sandbox::level::TileCursor;
+use sandbox::phys::movement::LookDir;
+use sandbox::phys::terrain::Terrain;
+use sandbox::phys::PhysPlugin;
 use sandbox::ui;
 use sandbox::ui::draw_confirmation_dialog;
 
@@ -48,10 +55,11 @@ fn main() {
         InputManagerPlugin::<ToolActions>::default(),
         LevelPlugin,
         file_picker::Plugin::<PickerEvent>::default(),
-        PhysicsPlugins::default(),
+        PhysPlugin,
     ));
     app.insert_resource(ClearColor(Color::DARK_GRAY))
-        .insert_resource(EditorState::default());
+        .insert_resource(EditorState::default())
+        .insert_resource(Gravity(Vector::NEG_Y * 160.0));
 
     app.register_type::<EditorState>();
 
@@ -74,10 +82,46 @@ fn main() {
             move_cursor,
             draw_confirmation_dialog::<EditorEvent>,
             spawn_collisions,
+            respawn_player,
+            draw_look_dir,
         ),
     );
 
     app.run();
+}
+
+fn respawn_player(mut cmds: Commands, keys: Res<Input<KeyCode>>, tile_cursor: Res<TileCursor>) {
+    let Some(tile_cursor) = **tile_cursor else {
+        return;
+    };
+    let pos = tpos_wpos(&tile_cursor);
+    if keys.just_pressed(KeyCode::F) {
+        cmds.add(DespawnPlayerCommand);
+        let size = Vector::new(14., 14.);
+        cmds.add(SpawnPlayerCommand { pos, size });
+    }
+}
+
+fn draw_look_dir(
+    q_player: Query<(&LookDir, &Transform), With<Player>>,
+    mut lines: ResMut<DebugLines>,
+) {
+    if let Some((dir, transform)) = q_player.get_single().ok() {
+        match dir {
+            LookDir::Left => lines.line_colored(
+                transform.translation,
+                transform.translation + dir.as_vec().extend(0.) * 16.,
+                0.,
+                Color::RED,
+            ),
+            LookDir::Right => lines.line_colored(
+                transform.translation,
+                transform.translation + dir.as_vec().extend(0.) * 16.,
+                0.,
+                Color::RED,
+            ),
+        }
+    }
 }
 
 fn enable_inspector(state: Res<EditorState>) -> bool {
@@ -525,8 +569,12 @@ fn spawn_collisions(
                 3 => Collider::cuboid(16., 2.),
                 _ => unreachable!(),
             };
-            cmds.entity(*tile_entity)
-                .insert((RigidBody::Static, collider, Position::from(center)));
+            cmds.entity(*tile_entity).insert((
+                RigidBody::Static,
+                collider,
+                Position::from(center),
+                Terrain,
+            ));
         });
     }
 }

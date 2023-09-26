@@ -1,4 +1,5 @@
 pub mod editor;
+pub mod entity;
 pub mod file_picker;
 pub mod input;
 pub mod level;

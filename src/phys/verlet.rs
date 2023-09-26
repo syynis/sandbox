@@ -1,7 +1,5 @@
 use bevy::prelude::*;
 
-use super::PhysSettings;
-
 pub struct VerletPlugin;
 
 #[derive(SystemSet, Debug, PartialEq, Eq, Hash, Clone)]
@@ -24,6 +22,33 @@ impl Plugin for VerletPlugin {
             .register_type::<Link>()
             .register_type::<Tension>();
         bevy::log::info!("Loaded verlet plugin");
+    }
+}
+
+pub enum Gravity {
+    Dir(Vec2),
+    None,
+}
+
+impl Gravity {
+    fn acceleration(&self) -> Vec2 {
+        match self {
+            Gravity::Dir(dir) => *dir,
+            Gravity::None => Vec2::ZERO,
+        }
+    }
+}
+
+#[derive(Resource)]
+pub struct PhysSettings {
+    pub gravity: Gravity,
+}
+
+impl Default for PhysSettings {
+    fn default() -> Self {
+        Self {
+            gravity: Gravity::None,
+        }
     }
 }
 

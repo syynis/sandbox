@@ -1,15 +1,19 @@
 use bevy::{
-    core_pipeline::clear_color::ClearColorConfig,
-    prelude::*,
-    render::camera::Viewport,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
+    core_pipeline::clear_color::ClearColorConfig, prelude::*, render::camera::Viewport,
+    sprite::Mesh2dHandle,
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_prototype_lyon::prelude::ShapePlugin;
-use leafwing_input_manager::prelude::*;
-use sandbox::input::InputPlugin;
+use sandbox::{
+    entity::player::Player,
+    input::InputPlugin,
+    phys::{
+        movement::{Control, MovementPlugin},
+        PhysPlugin,
+    },
+};
 
 use bevy_xpbd_2d::prelude::*;
 use bevy_xpbd_2d::{math::*, parry::bounding_volume::Aabb};
@@ -22,10 +26,10 @@ fn main() {
         PanCamPlugin::default(),
         DebugLinesPlugin::default(),
         WorldInspectorPlugin::new(),
-        PhysicsPlugins::default(),
-        InputManagerPlugin::<ActionKind>::default(),
+        PhysPlugin,
         ShapePlugin,
         InputPlugin,
+        MovementPlugin,
     ));
 
     app.insert_resource(ClearColor(Color::BLACK))
@@ -34,8 +38,7 @@ fn main() {
     app.add_systems(Startup, setup);
     app.add_systems(Update, (move_portal_camera, sync_portals).chain());
     app.add_systems(Update, (change_focus, player_in_portal));
-    app.add_systems(Update, (movement));
-    app.add_systems(PostUpdate, (sync_velocities));
+    app.add_systems(PostUpdate, sync_velocities);
 
     app.run();
 }
@@ -168,27 +171,6 @@ fn setup(
         dimension: portal_size,
         other: portal2,
     });
-
-    let cuboid = (MaterialMesh2dBundle {
-        mesh: meshes.add(shape::Box::new(12.0, 16.0, 1.0).into()).into(),
-        material: materials.add(ColorMaterial::from(Color::rgb(0.47, 0.58, 0.8))),
-        transform: Transform::from_xyz(0., 200., 1.),
-        ..default()
-    },);
-
-    cmds.spawn((
-        Player,
-        cuboid.clone(),
-        ColliderAabb::from_shape(Collider::cuboid(16.0, 16.0).get_shape()),
-        RigidBody::Dynamic,
-        Collider::cuboid(16.0, 16.0),
-        Position(Vector::new(0., 200.)),
-        LockedAxes::new().lock_rotation(),
-        Friction::new(0.),
-        Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
-        Control::default(),
-        CollisionLayers::new([Layer::Normal], [Layer::Normal]),
-    ));
 }
 
 #[derive(PhysicsLayer, Default)]
@@ -196,63 +178,6 @@ enum Layer {
     #[default]
     Normal,
     Portal,
-}
-
-#[derive(Component)]
-pub struct Player;
-
-#[derive(Component)]
-pub struct Controllable;
-
-#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
-pub enum ActionKind {
-    Left,
-    Right,
-    Jump,
-}
-
-#[derive(Bundle)]
-pub struct Control {
-    controllable: Controllable,
-    input: InputManagerBundle<ActionKind>,
-}
-
-impl Default for Control {
-    fn default() -> Self {
-        use ActionKind::*;
-
-        let mut input_map = InputMap::default();
-        input_map.insert(KeyCode::A, Left);
-        input_map.insert(KeyCode::D, Right);
-        input_map.insert(KeyCode::Space, Jump);
-        Self {
-            controllable: Controllable,
-            input: InputManagerBundle {
-                input_map,
-                ..default()
-            },
-        }
-    }
-}
-
-fn movement(
-    action_state_query: Query<&ActionState<ActionKind>>,
-    mut query_player: Query<&mut LinearVelocity, With<Controllable>>,
-) {
-    for action_state in action_state_query.iter() {
-        for mut vel in query_player.iter_mut() {
-            if action_state.pressed(ActionKind::Left) {
-                vel.x -= 16.;
-            }
-            if action_state.pressed(ActionKind::Right) {
-                vel.x += 16.;
-            }
-            if action_state.just_pressed(ActionKind::Jump) {
-                vel.y += 64.;
-            }
-            vel.x *= 0.90;
-        }
-    }
 }
 
 fn approx_equal(a: f32, b: f32, dp: u8) -> bool {
@@ -305,8 +230,6 @@ fn player_in_portal(
             if q_player_link.get_single().ok().is_none() {
                 let diff = **portal_pos - **pos;
                 if !(*spawned) {
-                    println!("spawn");
-
                     cmds.spawn((
                         PlayerLink,
                         LinearVelocity::from(linvel.clone()),
