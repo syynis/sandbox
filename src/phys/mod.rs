@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 use bevy_xpbd_2d::{prelude::*, PostProcessCollisions};
 
-use self::{movement::MovementPlugin, terrain::handle_platforms};
+use self::{
+    movement::{MovementPlugin, PoleClimb},
+    terrain::{handle_platforms, Pole},
+};
 
 pub mod movement;
 pub mod spatial;
@@ -14,5 +17,7 @@ impl Plugin for PhysPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((MovementPlugin, PhysicsPlugins::default()));
         app.add_systems(PostProcessCollisions, handle_platforms);
+        app.register_type::<Pole>();
+        app.register_type::<PoleClimb>();
     }
 }

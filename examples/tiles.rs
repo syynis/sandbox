@@ -39,6 +39,8 @@ use sandbox::level::LevelPlugin;
 use sandbox::level::TileCursor;
 use sandbox::phys::movement::LookDir;
 use sandbox::phys::terrain::Platform;
+use sandbox::phys::terrain::Pole;
+use sandbox::phys::terrain::PoleType;
 use sandbox::phys::terrain::Terrain;
 use sandbox::phys::PhysPlugin;
 use sandbox::ui;
@@ -186,6 +188,7 @@ fn setup(mut cmds: Commands) {
         input_map: tool_actions_map(),
         ..default()
     },));
+    cmds.add(SpawnMapCommand);
 }
 
 fn load_egui_icons(
@@ -567,24 +570,48 @@ fn spawn_collisions(
                 (false, true) => Vector::new(1., -1.),
                 (true, true) => Vector::new(-1., -1.),
             };
+            let cross = Collider::compound(vec![
+                (
+                    Position::default(),
+                    Rotation::default(),
+                    Collider::cuboid(4., 16.),
+                ),
+                (
+                    Position::default(),
+                    Rotation::default(),
+                    Collider::cuboid(16., 4.),
+                ),
+            ]);
             let collider = match id.0 {
                 0 => Collider::cuboid(16., 16.),
                 1 => make_right_triangle(Vector::new(-8., -8.) * dir, 16., dir),
-                2 => Collider::cuboid(2., 16.),
-                3 => Collider::cuboid(16., 2.),
+                2 => Collider::cuboid(4., 16.),
+                3 => Collider::cuboid(16., 4.),
+                4 => cross,
                 5 => Collider::cuboid(16., 4.),
                 _ => unreachable!(),
             };
 
-            cmds.entity(*tile_entity).insert((
-                RigidBody::Static,
-                collider,
-                Position::from(center),
-                Terrain,
-            ));
+            cmds.entity(*tile_entity)
+                .insert((RigidBody::Static, collider, Position::from(center)));
             if id.0 == 5 {
                 cmds.entity(*tile_entity)
                     .insert((Platform::default(), Position::from(center + Vector::Y * 5.)));
+            }
+
+            if id.0 == 2 || id.0 == 3 || id.0 == 4 {
+                let pole_type = if id.0 == 2 {
+                    PoleType::Vertical
+                } else if id.0 == 3 {
+                    PoleType::Horizontal
+                } else {
+                    PoleType::Combined
+                };
+                cmds.entity(*tile_entity).insert((Sensor, Pole(pole_type)));
+            }
+
+            if id.0 == 0 || id.0 == 1 || id.0 == 5 {
+                cmds.entity(*tile_entity).insert(Terrain);
             }
         });
     }

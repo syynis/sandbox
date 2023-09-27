@@ -50,12 +50,13 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
             return;
         };
 
-        let id: u32 = if self.place_horizontal { 3 } else { 2 };
+        let id: i32 = if self.place_horizontal { 3 } else { 2 };
         let id = if tiles
             .get_properties(&cursor_tile_pos)
-            .map_or(false, |prop| id.saturating_sub(prop.id.0) == 1)
-        {
-            5
+            .map_or(false, |prop| {
+                prop.id.0 == 4 || (id - prop.id.0 as i32).abs() == 1
+            }) {
+            4
         } else {
             id
         };
@@ -63,7 +64,7 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
         tiles.replace(
             &cursor_tile_pos,
             TileProperties {
-                id: TileTextureIndex(id),
+                id: TileTextureIndex(id as u32),
                 flip: TileFlip::default(),
             },
         );

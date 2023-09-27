@@ -4,7 +4,9 @@ use bevy::{prelude::*, time::Stopwatch, utils::hashbrown::HashMap};
 use bevy_xpbd_2d::{math::Vector, prelude::*};
 use leafwing_input_manager::prelude::*;
 
-use super::terrain::{Pole, Terrain};
+use crate::entity::player::Player;
+
+use super::terrain::{Pole, PoleType, Terrain};
 
 pub struct MovementPlugin;
 
@@ -12,6 +14,9 @@ impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(InputManagerPlugin::<ActionKind>::default());
         app.add_systems(Update, movement);
+        app.add_systems(Update, handle_pole_climb.after(PhysicsSet::StepSimulation));
+        app.add_systems(Update, handle_pole_movement);
+        app.add_systems(Update, handle_gravity);
     }
 }
 
@@ -51,6 +56,8 @@ pub struct Controllable;
 
 #[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 pub enum ActionKind {
+    Up,
+    Down,
     Left,
     Right,
     Jump,
@@ -67,6 +74,8 @@ impl Default for Control {
         use ActionKind::*;
 
         let mut input_map = InputMap::default();
+        input_map.insert(KeyCode::W, Up);
+        input_map.insert(KeyCode::S, Down);
         input_map.insert(KeyCode::A, Left);
         input_map.insert(KeyCode::D, Right);
         input_map.insert(KeyCode::Space, Jump);
@@ -90,7 +99,7 @@ fn movement(
             &ShapeHits,
             &mut LookDir,
         ),
-        With<Controllable>,
+        (With<Controllable>, Without<PoleClimb>),
     >,
     q_terrain: Query<Entity, With<Terrain>>,
     spatial_query: SpatialQuery,
@@ -185,7 +194,118 @@ fn movement(
     }
 }
 
-#[derive(Component)]
-pub struct PoleClimb;
+#[derive(Default, Component, Reflect)]
+#[reflect(Component)]
+pub struct PoleClimb(pub PoleType);
 
-fn handle_pole_climb(poles: Query<&Pole>, player: Query<(Entity), With<Controllable>>) {}
+fn handle_pole_climb(
+    mut cmds: Commands,
+    poles: Query<&Pole>,
+    mut player: Query<
+        (Entity, &CollidingEntities, Option<&mut PoleClimb>),
+        (With<Controllable>, With<Player>),
+    >,
+    action_state_query: Query<&ActionState<ActionKind>>,
+) {
+    let Ok(action_state) = action_state_query.get_single() else {
+        return;
+    };
+    let Ok((player, colliding, climb)) = player.get_single_mut() else {
+        return;
+    };
+
+    let mut pole = None;
+    colliding.0.iter().for_each(|other| {
+        if let Ok(p) = poles.get(*other) {
+            match pole {
+                None => pole = Some(p),
+                Some(_) => match p.0 {
+                    PoleType::Combined => pole = Some(p),
+                    _ => {}
+                },
+            };
+        };
+    });
+
+    if let Some(pole) = pole {
+        if let Some(mut climb) = climb {
+            climb.0 = pole.0;
+        } else {
+            if action_state.pressed(ActionKind::Up) {
+                cmds.entity(player).insert(PoleClimb(pole.0));
+            }
+        }
+    } else {
+        cmds.entity(player).remove::<PoleClimb>();
+    }
+}
+
+fn handle_pole_movement(
+    mut cmds: Commands,
+    mut player: Query<
+        (Entity, &mut LinearVelocity, &mut GravityScale, &PoleClimb),
+        (With<Controllable>, With<Player>),
+    >,
+    action_state_query: Query<&ActionState<ActionKind>>,
+) {
+    let Ok(action_state) = action_state_query.get_single() else {
+        return;
+    };
+
+    let Ok((player, mut vel, mut gravity, climb)) = player.get_single_mut() else {
+        return;
+    };
+    gravity.0 = 0.;
+
+    match climb.0 {
+        PoleType::Vertical => {
+            vel.0 = Vec2::ZERO;
+            if action_state.pressed(ActionKind::Up) {
+                vel.y = 64.;
+            }
+
+            if action_state.pressed(ActionKind::Down) {
+                vel.y = -64.;
+            }
+        }
+        PoleType::Horizontal => {
+            vel.0 = Vec2::ZERO;
+            if action_state.pressed(ActionKind::Left) {
+                vel.x = -64.;
+            }
+
+            if action_state.pressed(ActionKind::Right) {
+                vel.x = 64.;
+            }
+        }
+        PoleType::Combined => {
+            vel.0 = Vec2::ZERO;
+            if action_state.pressed(ActionKind::Up) {
+                vel.y = 64.;
+            }
+
+            if action_state.pressed(ActionKind::Down) {
+                vel.y = -64.;
+            }
+            if action_state.pressed(ActionKind::Left) {
+                vel.x = -64.;
+            }
+
+            if action_state.pressed(ActionKind::Right) {
+                vel.x = 64.;
+            }
+        }
+    }
+
+    if action_state.just_pressed(ActionKind::Jump) {
+        cmds.entity(player).remove::<PoleClimb>();
+    }
+}
+
+fn handle_gravity(mut climb: RemovedComponents<PoleClimb>, mut gravity: Query<&mut GravityScale>) {
+    for e in climb.iter() {
+        if let Some(mut gravity) = gravity.get_mut(e).ok() {
+            gravity.0 = 1.0;
+        }
+    }
+}

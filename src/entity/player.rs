@@ -45,6 +45,7 @@ impl Command for SpawnPlayerCommand {
             Friction::new(0.),
             LookDir::Right,
             PlatformPass,
+            GravityScale(1.),
         ));
     }
 }

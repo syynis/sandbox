@@ -4,8 +4,17 @@ use bevy_xpbd_2d::{math::*, prelude::*};
 #[derive(Component)]
 pub struct Terrain;
 
-#[derive(Component)]
-pub struct Pole;
+#[derive(Default, Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
+pub struct Pole(pub PoleType);
+
+#[derive(Default, Clone, Copy, Reflect)]
+pub enum PoleType {
+    #[default]
+    Horizontal,
+    Vertical,
+    Combined,
+}
 
 #[derive(Component, Default)]
 pub struct Platform(pub HashSet<Entity>);
