@@ -11,10 +11,12 @@ use bevy_xpbd_2d::prelude::*;
 use sandbox::entity::player::DespawnPlayerCommand;
 use sandbox::entity::player::Player;
 use sandbox::entity::player::SpawnPlayerCommand;
+use sandbox::input::CursorPos;
 use sandbox::input::InputPlugin;
 use sandbox::phys::movement::LookDir;
 use sandbox::phys::movement::MovementPlugin;
 use sandbox::phys::terrain::Terrain;
+use sandbox::phys::PhysPlugin;
 
 fn main() {
     let mut app = App::new();
@@ -22,12 +24,11 @@ fn main() {
     app.add_plugins((
         DefaultPlugins,
         PanCamPlugin::default(),
-        PhysicsPlugins::default(),
         DebugLinesPlugin::default(),
         WorldInspectorPlugin::new(),
         ShapePlugin,
         InputPlugin,
-        MovementPlugin,
+        PhysPlugin,
     ));
     app.insert_resource(ClearColor(Color::BLACK))
         .insert_resource(Gravity(Vector::NEG_Y * 160.0));
@@ -141,10 +142,10 @@ fn setup(mut cmds: Commands) {
     ));
 }
 
-fn respawn_player(mut cmds: Commands, keys: Res<Input<KeyCode>>) {
+fn respawn_player(mut cmds: Commands, keys: Res<Input<KeyCode>>, cursor_pos: Res<CursorPos>) {
+    let pos = **cursor_pos;
     if keys.just_pressed(KeyCode::F) {
         cmds.add(DespawnPlayerCommand);
-        let pos = Vector::new(100., 100.);
         let size = Vector::new(14., 14.);
         cmds.add(SpawnPlayerCommand { pos, size });
     }

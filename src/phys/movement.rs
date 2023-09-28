@@ -14,7 +14,7 @@ impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(InputManagerPlugin::<ActionKind>::default());
         app.add_systems(Update, movement);
-        app.add_systems(Update, handle_pole_climb.after(PhysicsSet::StepSimulation));
+        app.add_systems(Update, handle_pole_climb);
         app.add_systems(Update, handle_pole_movement);
         app.add_systems(Update, handle_gravity);
     }
