@@ -27,6 +27,9 @@ use sandbox::editor::EditorState;
 use sandbox::editor::PickerEvent;
 use sandbox::editor::ToolActions;
 use sandbox::editor::WorldMapExt;
+use sandbox::entity::holdable::CanHold;
+use sandbox::entity::holdable::Holdable;
+use sandbox::entity::holdable::IsHeld;
 use sandbox::entity::player::DespawnPlayerCommand;
 use sandbox::entity::player::Player;
 use sandbox::entity::player::SpawnPlayerCommand;
@@ -63,7 +66,8 @@ fn main() {
     ));
     app.insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(EditorState::default())
-        .insert_resource(Gravity(Vector::NEG_Y * 160.0));
+        .insert_resource(Gravity(Vector::NEG_Y * 160.0))
+        .insert_resource(SubstepCount(3));
 
     app.register_type::<EditorState>();
 
@@ -88,6 +92,9 @@ fn main() {
             spawn_collisions,
             respawn_player,
             draw_look_dir,
+            spawn_rock,
+            hold,
+            throw,
         ),
     );
 
@@ -103,6 +110,109 @@ fn respawn_player(mut cmds: Commands, keys: Res<Input<KeyCode>>, tile_cursor: Re
         cmds.add(DespawnPlayerCommand);
         let size = Vector::new(14., 14.);
         cmds.add(SpawnPlayerCommand { pos, size });
+    }
+}
+
+fn spawn_rock(mut cmds: Commands, keys: Res<Input<KeyCode>>, tile_cursor: Res<TileCursor>) {
+    let Some(tile_cursor) = **tile_cursor else {
+        return;
+    };
+    let pos = tpos_wpos(&tile_cursor);
+    if keys.just_pressed(KeyCode::G) {
+        cmds.spawn((
+            Position(pos),
+            RigidBody::Dynamic,
+            Collider::ball(4.),
+            Holdable,
+            SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgb(0.7, 0.7, 0.8),
+                    custom_size: Some(Vec2::splat(8.0)),
+                    ..default()
+                },
+                ..default()
+            },
+        ));
+    }
+}
+
+fn hold(
+    mut cmds: Commands,
+    keys: Res<Input<KeyCode>>,
+    holdables: Query<Entity, With<Holdable>>,
+    held: Query<&IsHeld>,
+    holder: Query<(Entity, Option<&Children>, &CollidingEntities), With<CanHold>>,
+) {
+    let Ok((holder, children, colliding)) = holder.get_single() else {
+        return;
+    };
+
+    if let Some(children) = children {
+        if children.iter().any(|child| held.get(*child).is_ok()) {
+            return;
+        }
+    }
+
+    if keys.just_pressed(KeyCode::H) {
+        // Find first colliding enitty that is also a holdable
+        if let Some(holdable) = colliding.0.iter().find(|e| holdables.get(**e).is_ok()) {
+            // Despawn entity to get rid of all the physics related components
+            // TODO when bevy_xpbd supports child colliders think about simply moving the entity to the children list
+            // This would hopefully also naturally add velocity inheritance on throwing
+            cmds.entity(*holdable).despawn();
+            cmds.entity(holder).with_children(|childbuilder| {
+                childbuilder.spawn((
+                    IsHeld,
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::rgb(0.7, 0.7, 0.8),
+                            custom_size: Some(Vec2::splat(8.0)),
+                            ..default()
+                        },
+                        ..default()
+                    },
+                ));
+            });
+        }
+    }
+}
+
+fn throw(
+    mut cmds: Commands,
+    keys: Res<Input<KeyCode>>,
+    holder: Query<(Entity, &Children, &Transform, &LookDir), With<CanHold>>,
+    held: Query<(With<IsHeld>, With<Parent>)>,
+) {
+    let Ok((holder, children, transform, look_dir)) = holder.get_single() else {
+        return;
+    };
+
+    // Can't throw anything
+    let Some(throwable) = children.iter().find(|child| held.get(**child).is_ok()) else {
+        return;
+    };
+
+    if keys.just_pressed(KeyCode::X) {
+        // Remove child throwable entity
+        cmds.entity(holder).remove_children(&[*throwable]);
+        cmds.entity(*throwable).despawn();
+
+        // Spawn new physics entity
+        cmds.spawn((
+            LinearVelocity(look_dir.as_vec() * 256. + Vector::Y * 64.),
+            Position(transform.translation.truncate() + look_dir.as_vec() * 16.),
+            RigidBody::Dynamic,
+            Collider::ball(4.),
+            Holdable,
+            SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgb(0.7, 0.7, 0.8),
+                    custom_size: Some(Vec2::splat(8.0)),
+                    ..default()
+                },
+                ..default()
+            },
+        ));
     }
 }
 

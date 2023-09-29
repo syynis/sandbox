@@ -9,6 +9,8 @@ use crate::phys::{
     terrain::PlatformPass,
 };
 
+use super::holdable::CanHold;
+
 #[derive(WorldQuery)]
 pub struct PlayerQuery {
     entity: Entity,
@@ -27,7 +29,7 @@ impl Command for SpawnPlayerCommand {
     fn apply(self, world: &mut World) {
         world.spawn((
             Player,
-            Position::from(self.pos),
+            Position(self.pos),
             Collider::cuboid(self.size.x, self.size.y),
             RigidBody::Dynamic,
             LockedAxes::new().lock_rotation(),
@@ -46,6 +48,8 @@ impl Command for SpawnPlayerCommand {
             LookDir::Right,
             PlatformPass,
             GravityScale(1.),
+            CanHold,
+            VisibilityBundle::default(),
         ));
     }
 }
