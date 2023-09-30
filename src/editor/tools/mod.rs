@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::utils::hashbrown::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 pub mod area;
@@ -8,6 +9,7 @@ pub mod paint;
 pub mod platform;
 pub mod pole;
 pub mod slope;
+pub mod util;
 
 pub type ToolId = usize;
 
@@ -52,11 +54,10 @@ impl ToolSet {
 pub trait Tool: Sync + Send {
     fn new(world: &mut World) -> Self;
     fn apply(&mut self, world: &mut World);
-    fn update(&mut self, world: &mut World);
 }
 
 #[derive(Resource)]
-struct ToolState<T: 'static + Sync + Send>(HashMap<ToolId, T>);
+struct ToolState<T: 'static + Sync + Send + Tool>(HashMap<ToolId, T>);
 
 pub fn run_tool<T: Tool + 'static>(world: &mut World, id: ToolId) {
     if !world.contains_resource::<ToolState<T>>() {
@@ -66,16 +67,5 @@ pub fn run_tool<T: Tool + 'static>(world: &mut World, id: ToolId) {
     world.resource_scope(|world, mut states: Mut<ToolState<T>>| {
         let state = states.0.entry(id).or_insert(T::new(world));
         state.apply(world);
-    })
-}
-
-pub fn update_tool<T: Tool + 'static>(world: &mut World, id: ToolId) {
-    if !world.contains_resource::<ToolState<T>>() {
-        world.insert_resource(ToolState::<T>(HashMap::new()));
-    }
-
-    world.resource_scope(|world, mut states: Mut<ToolState<T>>| {
-        let state = states.0.entry(id).or_insert(T::new(world));
-        state.update(world);
     })
 }

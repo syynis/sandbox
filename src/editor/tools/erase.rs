@@ -2,22 +2,17 @@ use bevy::{
     ecs::system::{SystemParam, SystemState},
     prelude::*,
 };
-use bevy_prototype_debug_lines::DebugLines;
 
-use crate::{
-    editor::EditorState,
-    level::{placement::StorageAccess, tpos_wpos, TileCursor},
-    util::box_lines,
+use crate::editor::EditorActions;
+
+use super::{
+    util::{draw_tile_outline, CommonToolParams},
+    Tool,
 };
-
-use super::Tool;
 
 #[derive(SystemParam)]
 struct EraseToolParams<'w, 's> {
-    pub tiles: StorageAccess<'w, 's>,
-    pub tile_cursor: Res<'w, TileCursor>,
-    pub editor_state: ResMut<'w, EditorState>,
-    pub lines: ResMut<'w, DebugLines>,
+    pub common: CommonToolParams<'w, 's>,
 }
 
 pub struct EraseTool<'w: 'static, 's: 'static> {
@@ -33,34 +28,29 @@ impl<'w, 's> Tool for EraseTool<'w, 's> {
 
     fn apply(&mut self, world: &mut World) {
         let EraseToolParams {
-            mut tiles,
-            tile_cursor,
-            mut editor_state,
-            ..
+            common:
+                CommonToolParams {
+                    mut tiles,
+                    tile_cursor,
+                    mut editor_state,
+                    lines,
+                    editor_actions,
+                },
         } = self.system_state.get_mut(world);
 
         let Some(cursor_tile_pos) = **tile_cursor else {
             return;
         };
 
-        tiles.remove(&cursor_tile_pos);
-        editor_state.unsaved_changes = true;
-        self.system_state.apply(world);
-    }
-    fn update(&mut self, world: &mut World) {
-        let EraseToolParams {
-            tile_cursor,
-            mut lines,
-            ..
-        } = self.system_state.get_mut(world);
+        draw_tile_outline(tile_cursor, lines);
 
-        // TODO every system wants this think about best way to factor this out
-        if let Some(tile_cursor) = **tile_cursor {
-            let wpos = tpos_wpos(&tile_cursor);
+        let Ok(editor_actions) = editor_actions.get_single() else {
+            return;
+        };
 
-            for (start, end) in box_lines(wpos.extend(0.), Vec2::new(16., 16.)) {
-                lines.line_colored(start, end, 0., Color::RED);
-            }
+        if editor_actions.pressed(EditorActions::ApplyTool) {
+            tiles.remove(&cursor_tile_pos);
+            editor_state.unsaved_changes = true;
         }
         self.system_state.apply(world);
     }

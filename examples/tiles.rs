@@ -18,7 +18,6 @@ use sandbox::editor::tools::platform::PlatformTool;
 use sandbox::editor::tools::pole::PoleTool;
 use sandbox::editor::tools::run_tool;
 use sandbox::editor::tools::slope::SlopeTool;
-use sandbox::editor::tools::update_tool;
 use sandbox::editor::ui::menu::EditorMenuBar;
 use sandbox::editor::ui::toolbar::EditorToolBar;
 use sandbox::editor::EditorActions;
@@ -403,50 +402,16 @@ fn move_cursor(window: Query<&Window>, mut cursor: Query<&mut Style, With<Custom
     }
 }
 
-fn apply_tool(
-    world: &mut World,
-    system_param: &mut SystemState<(Query<&ActionState<EditorActions>>, Res<EditorState>)>,
-) {
-    let (action_state, editor_state) = system_param.get(world);
-
-    let Ok(action_state) = action_state.get_single() else {
-        return;
-    };
-
-    let (pressed, released) = (
-        action_state.pressed(EditorActions::ApplyTool),
-        action_state.just_released(EditorActions::ApplyTool),
-    );
-
+fn apply_tool(world: &mut World, system_param: &mut SystemState<Res<EditorState>>) {
+    let editor_state = system_param.get(world);
     let active_tool_id = editor_state.active_tool;
-
-    if pressed {
-        match active_tool_id {
-            0 => run_tool::<PlatformTool>(world, active_tool_id),
-            1 => run_tool::<AreaTool>(world, active_tool_id),
-            2 => run_tool::<PaintTool>(world, active_tool_id),
-            3 => run_tool::<PoleTool>(world, active_tool_id),
-            4 => run_tool::<SlopeTool>(world, active_tool_id),
-            5 => run_tool::<EraseTool>(world, active_tool_id),
-            _ => {}
-        }
-    }
-
-    if released {
-        match active_tool_id {
-            1 => run_tool::<AreaTool>(world, active_tool_id),
-            _ => {}
-        }
-    }
-
     match active_tool_id {
-        0 => update_tool::<PlatformTool>(world, active_tool_id),
-        1 => update_tool::<AreaTool>(world, active_tool_id),
-        2 => update_tool::<PaintTool>(world, active_tool_id),
-        3 => update_tool::<PoleTool>(world, active_tool_id),
-        4 => update_tool::<SlopeTool>(world, active_tool_id),
-        5 => update_tool::<EraseTool>(world, active_tool_id),
-
+        0 => run_tool::<PlatformTool>(world, active_tool_id),
+        1 => run_tool::<AreaTool>(world, active_tool_id),
+        2 => run_tool::<PaintTool>(world, active_tool_id),
+        3 => run_tool::<PoleTool>(world, active_tool_id),
+        4 => run_tool::<SlopeTool>(world, active_tool_id),
+        5 => run_tool::<EraseTool>(world, active_tool_id),
         _ => {}
     }
 }
