@@ -1,5 +1,3 @@
-use anyhow::Context;
-use anyhow::Result;
 use bevy_ecs_tilemap::tiles::TileStorage;
 use std::path::PathBuf;
 
@@ -120,18 +118,5 @@ impl file_picker::PickerEvent for PickerEvent {
             Save(_) => Save(Some(result[0].clone())),
             Load(_) => Load(Some(result[0].clone())),
         };
-    }
-}
-
-// TODO more principled way to check if we are currently editing a tilemap
-pub trait WorldMapExt: Sized {
-    fn get_map(&mut self) -> Result<&TileStorage>;
-}
-
-impl WorldMapExt for &mut World {
-    fn get_map(&mut self) -> Result<&TileStorage> {
-        let mut q = self.query::<&TileStorage>();
-        q.get_single(self)
-            .context("Failed to get single map entity")
     }
 }

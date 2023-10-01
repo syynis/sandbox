@@ -21,24 +21,18 @@ pub struct TileUpdateEvent {
 
 // TODO This is extremely clunky find a way to fix this
 #[derive(SystemParam)]
-pub struct LayerStorage<'w, 's, T: Component + Layer, O1: Component + Layer, O2: Component + Layer>
-{
-    storage: Query<'w, 's, (Entity, &'static mut TileStorage), (With<T>, Without<O1>, Without<O2>)>,
+pub struct LayerStorage<'w, 's, T: Component + Layer, O1: Component + Layer> {
+    storage: Query<'w, 's, (Entity, &'static mut TileStorage), (With<T>, Without<O1>)>,
     // TODO Maybe enforce that each tilemap has the same size and transform
-    transform: Query<
-        'w,
-        's,
-        (&'static Transform, &'static TilemapSize),
-        (With<T>, Without<O1>, Without<O2>),
-    >,
+    transform: Query<'w, 's, (&'static Transform, &'static TilemapSize), (With<T>, Without<O1>)>,
 }
 
 #[derive(SystemParam)]
 pub struct StorageAccess<'w, 's> {
     cmds: Commands<'w, 's>,
-    world: LayerStorage<'w, 's, WorldLayer, NearLayer, FarLayer>,
-    near: LayerStorage<'w, 's, NearLayer, WorldLayer, FarLayer>,
-    far: LayerStorage<'w, 's, FarLayer, WorldLayer, NearLayer>,
+    world: LayerStorage<'w, 's, WorldLayer, NearLayer>,
+    near: LayerStorage<'w, 's, NearLayer, FarLayer>,
+    far: LayerStorage<'w, 's, FarLayer, WorldLayer>,
     tile_properties: Query<'w, 's, (&'static TileTextureIndex, &'static TileFlip)>,
     tile_update_event_writer: EventWriter<'w, TileUpdateEvent>,
 }

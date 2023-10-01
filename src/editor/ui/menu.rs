@@ -2,8 +2,9 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::{
-    editor::{EditorEvent, EditorState, PickerEvent, WorldMapExt},
+    editor::{EditorEvent, EditorState, PickerEvent},
     file_picker,
+    level::WorldMapExt,
     ui::{
         widget::{basic_widget, BasicWidget},
         ConfirmationDialog,
