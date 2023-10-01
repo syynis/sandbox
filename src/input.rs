@@ -1,11 +1,16 @@
+use std::marker::PhantomData;
+
 use bevy::prelude::*;
 
-pub struct InputPlugin;
+#[derive(Default)]
+pub struct InputPlugin<T: Component> {
+    phantom: PhantomData<T>,
+}
 
-impl Plugin for InputPlugin {
+impl<T: Component> Plugin for InputPlugin<T> {
     fn build(&self, app: &mut App) {
         app.insert_resource(CursorPos::default());
-        app.add_systems(Update, update_cursor_pos);
+        app.add_systems(Update, update_cursor_pos::<T>);
         app.register_type::<CursorPos>();
     }
 }
@@ -14,8 +19,8 @@ impl Plugin for InputPlugin {
 #[reflect(Resource)]
 pub struct CursorPos(pub Vec2);
 
-pub fn update_cursor_pos(
-    camera_query: Query<(&Camera, &GlobalTransform)>,
+pub fn update_cursor_pos<T: Component>(
+    camera_query: Query<(&Camera, &GlobalTransform), With<T>>,
     mut cursor_moved_events: EventReader<CursorMoved>,
     mut cursor_pos: ResMut<CursorPos>,
 ) {
