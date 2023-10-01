@@ -20,12 +20,19 @@ pub struct PlayerQuery {
 #[derive(Component)]
 pub struct Player;
 
-pub struct SpawnPlayerCommand {
+pub struct SpawnPlayerCommand<B: Bundle> {
     pub pos: Vector,
     pub size: Vector,
+    pub extra: B,
 }
 
-impl Command for SpawnPlayerCommand {
+impl<B: Bundle> SpawnPlayerCommand<B> {
+    pub fn new(pos: Vector, size: Vector, extra: B) -> Self {
+        Self { pos, size, extra }
+    }
+}
+
+impl<B: Bundle> Command for SpawnPlayerCommand<B> {
     fn apply(self, world: &mut World) {
         world.spawn((
             Player,
@@ -50,6 +57,7 @@ impl Command for SpawnPlayerCommand {
             GravityScale(1.),
             CanHold,
             VisibilityBundle::default(),
+            self.extra,
         ));
     }
 }

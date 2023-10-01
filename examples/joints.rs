@@ -14,7 +14,7 @@ fn main() {
         DefaultPlugins,
         PanCamPlugin::default(),
         WorldInspectorPlugin::new(),
-        InputPlugin,
+        InputPlugin::<PanCam>::default(),
         PhysPlugin,
     ));
     app.insert_resource(ClearColor(Color::BLACK))

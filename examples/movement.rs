@@ -14,7 +14,6 @@ use sandbox::entity::player::SpawnPlayerCommand;
 use sandbox::input::CursorPos;
 use sandbox::input::InputPlugin;
 use sandbox::phys::movement::LookDir;
-use sandbox::phys::movement::MovementPlugin;
 use sandbox::phys::terrain::Terrain;
 use sandbox::phys::PhysPlugin;
 
@@ -27,7 +26,7 @@ fn main() {
         DebugLinesPlugin::default(),
         WorldInspectorPlugin::new(),
         ShapePlugin,
-        InputPlugin,
+        InputPlugin::<PanCam>::default(),
         PhysPlugin,
     ));
     app.insert_resource(ClearColor(Color::BLACK))
@@ -147,7 +146,7 @@ fn respawn_player(mut cmds: Commands, keys: Res<Input<KeyCode>>, cursor_pos: Res
     if keys.just_pressed(KeyCode::F) {
         cmds.add(DespawnPlayerCommand);
         let size = Vector::new(14., 14.);
-        cmds.add(SpawnPlayerCommand { pos, size });
+        cmds.add(SpawnPlayerCommand::new(pos, size, ()));
     }
 }
 

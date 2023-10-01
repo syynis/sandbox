@@ -54,7 +54,7 @@ fn main() {
     app.add_plugins((
         DefaultPlugins.set(ImagePlugin::default_nearest()),
         PanCamPlugin::default(),
-        InputPlugin,
+        InputPlugin::<PanCam>::default(),
         DebugLinesPlugin::default(),
         WorldInspectorPlugin::default().run_if(enable_inspector),
         InputManagerPlugin::<EditorActions>::default(),
@@ -108,7 +108,7 @@ fn respawn_player(mut cmds: Commands, keys: Res<Input<KeyCode>>, tile_cursor: Re
     if keys.just_pressed(KeyCode::F) {
         cmds.add(DespawnPlayerCommand);
         let size = Vector::new(14., 14.);
-        cmds.add(SpawnPlayerCommand { pos, size });
+        cmds.add(SpawnPlayerCommand::new(pos, size, ()));
     }
 }
 
