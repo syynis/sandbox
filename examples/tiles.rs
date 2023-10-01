@@ -1,4 +1,3 @@
-use bevy::ecs::system::Command;
 use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
@@ -25,7 +24,6 @@ use sandbox::editor::EditorEvent;
 use sandbox::editor::EditorState;
 use sandbox::editor::PickerEvent;
 use sandbox::editor::ToolActions;
-use sandbox::editor::WorldMapExt;
 use sandbox::entity::holdable::CanHold;
 use sandbox::entity::holdable::Holdable;
 use sandbox::entity::holdable::IsHeld;
@@ -34,10 +32,14 @@ use sandbox::entity::player::Player;
 use sandbox::entity::player::SpawnPlayerCommand;
 use sandbox::file_picker;
 use sandbox::input::InputPlugin;
+use sandbox::level::layer::LayerId;
+use sandbox::level::layer::WorldLayer;
+use sandbox::level::layer::ALL_LAYERS;
 use sandbox::level::placement::StorageAccess;
 use sandbox::level::serialization::LevelSerializer;
 use sandbox::level::tpos_wpos;
 use sandbox::level::LevelPlugin;
+use sandbox::level::SpawnMapCommand;
 use sandbox::level::TileCursor;
 use sandbox::phys::movement::LookDir;
 use sandbox::phys::terrain::Platform;
@@ -47,6 +49,7 @@ use sandbox::phys::terrain::Terrain;
 use sandbox::phys::PhysPlugin;
 use sandbox::ui;
 use sandbox::ui::draw_confirmation_dialog;
+use sandbox::util::box_lines;
 
 fn main() {
     let mut app = App::new();
@@ -71,7 +74,7 @@ fn main() {
     app.register_type::<EditorState>();
 
     app.add_event::<EditorEvent>().add_event::<PickerEvent>();
-    app.add_systems(Startup, (setup, load_egui_icons, setup_cursor));
+    app.add_systems(Startup, (setup, load_egui_icons));
     app.add_systems(
         Update,
         (
@@ -86,7 +89,6 @@ fn main() {
             handle_new.run_if(on_event::<EditorEvent>()),
             handle_picker_events.run_if(on_event::<PickerEvent>()),
             toggle_inspector,
-            move_cursor,
             draw_confirmation_dialog::<EditorEvent>,
             spawn_collisions,
             respawn_player,
@@ -257,6 +259,7 @@ fn editor_actions_map() -> InputMap<EditorActions> {
     input_map.insert(KeyCode::L, Load);
 
     input_map.insert_modified(Modifier::Control, MouseButton::Left, EditorActions::Area);
+    input_map.insert_modified(Modifier::Shift, KeyCode::C, EditorActions::CycleLayer);
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::N], EditorActions::New);
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::S], EditorActions::Save);
     input_map.insert_chord([KeyCode::ControlLeft, KeyCode::C], EditorActions::Close);
@@ -297,7 +300,7 @@ fn setup(mut cmds: Commands) {
         input_map: tool_actions_map(),
         ..default()
     },));
-    cmds.add(SpawnMapCommand);
+    cmds.add(SpawnMapCommand::new(32, 16));
 }
 
 fn load_egui_icons(
@@ -328,77 +331,6 @@ fn load_egui_icons(
     for (idx, tool_id) in editor_state.toolset.tool_order.clone().iter().enumerate() {
         let tool = editor_state.toolset.tools.get_mut(tool_id).unwrap();
         tool.egui_texture_id = Some(ids[idx]);
-    }
-}
-
-pub struct SpawnMapCommand;
-
-impl Command for SpawnMapCommand {
-    fn apply(self, mut world: &mut World) {
-        if world.get_map().is_ok() {
-            warn!("Tried to spawn world when one already exists");
-            return;
-        }
-        let assets_server = world.resource::<AssetServer>();
-        let tiles: Handle<Image> = assets_server.load("tiles.png");
-
-        let size = TilemapSize { x: 32, y: 32 };
-        let storage = TileStorage::empty(size);
-        let tilemap_entity = world.spawn_empty().id();
-
-        let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
-        let grid_size = tile_size.into();
-        let map_type = TilemapType::default();
-
-        world.entity_mut(tilemap_entity).insert(TilemapBundle {
-            grid_size,
-            map_type,
-            size,
-            storage,
-            texture: TilemapTexture::Single(tiles),
-            tile_size,
-            ..default()
-        });
-    }
-}
-
-#[derive(Component)]
-struct CustomCursor;
-
-fn setup_cursor(
-    mut windows: Query<&mut Window>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
-    let mut window: Mut<Window> = windows.single_mut();
-    window.cursor.visible = true;
-    let cursor_spawn: Vec3 = Vec3::ZERO;
-
-    commands.spawn((
-        ImageBundle {
-            image: asset_server.load("cursor.png").into(),
-            style: Style {
-                position_type: PositionType::Absolute,
-                left: Val::Auto,
-                right: Val::Auto,
-                bottom: Val::Auto,
-                top: Val::Auto,
-                ..default()
-            },
-            z_index: ZIndex::Global(15),
-            transform: Transform::from_translation(cursor_spawn),
-            ..default()
-        },
-        CustomCursor,
-    ));
-}
-
-fn move_cursor(window: Query<&Window>, mut cursor: Query<&mut Style, With<CustomCursor>>) {
-    let window: &Window = window.single();
-    if let Some(position) = window.cursor_position() {
-        let mut img_style = cursor.single_mut();
-        img_style.left = Val::Px(position.x - 8.);
-        img_style.top = Val::Px(position.y - 8.);
     }
 }
 
@@ -455,6 +387,10 @@ fn apply_editor_actions(
     if actions.just_pressed(EditorActions::New) {
         event_writer.send(EditorEvent::New);
     }
+
+    if actions.just_pressed(EditorActions::CycleLayer) {
+        editor_state.next_layer();
+    }
 }
 
 fn handle_save(
@@ -463,9 +399,6 @@ fn handle_save(
     map: Query<Entity, With<TileStorage>>,
     serializer: LevelSerializer,
 ) {
-    let Ok(_) = map.get_single() else {
-        return;
-    };
     for ev in editor_events.iter() {
         if let EditorEvent::Save(path) = ev {
             println!("{}", path.as_path().to_str().unwrap());
@@ -477,12 +410,9 @@ fn handle_save(
 
 fn handle_save_as(
     mut cmds: Commands,
-    mut editor_events: EventReader<EditorEvent>,
     map: Query<Entity, With<TileStorage>>,
+    mut editor_events: EventReader<EditorEvent>,
 ) {
-    let Ok(_) = map.get_single() else {
-        return;
-    };
     for ev in editor_events.iter() {
         if matches!(ev, EditorEvent::SaveAs) {
             cmds.spawn(file_picker::Picker::save_dialog(PickerEvent::Save(None)).build());
@@ -490,7 +420,11 @@ fn handle_save_as(
     }
 }
 
-fn handle_load(mut editor_events: EventReader<EditorEvent>, mut serializer: LevelSerializer) {
+fn handle_load(
+    mut editor_events: EventReader<EditorEvent>,
+    map: Query<Entity, With<TileStorage>>,
+    mut serializer: LevelSerializer,
+) {
     for ev in editor_events.iter() {
         if let EditorEvent::Load(path) = ev {
             println!("{}", path.as_path().to_str().unwrap());
@@ -513,7 +447,9 @@ fn handle_close(
                 return;
             };
 
-            storage.clear();
+            for layer in ALL_LAYERS.iter() {
+                storage.clear(*layer);
+            }
             cmds.entity(entity).despawn_recursive();
             editor_state.reset_path();
         }
@@ -523,17 +459,19 @@ fn handle_close(
 fn handle_new(
     mut cmds: Commands,
     mut editor_events: EventReader<EditorEvent>,
-    map: Query<Entity, With<TileStorage>>,
+    map: Query<Entity, (With<TileStorage>, With<WorldLayer>)>,
     mut storage: StorageAccess,
     mut editor_state: ResMut<EditorState>,
 ) {
     for ev in editor_events.iter() {
         if matches!(ev, EditorEvent::New) {
             if let Ok(entity) = map.get_single() {
-                storage.clear();
+                for layer in ALL_LAYERS.iter() {
+                    storage.clear(*layer);
+                }
                 cmds.entity(entity).despawn_recursive();
             }
-            cmds.add(SpawnMapCommand);
+            cmds.add(SpawnMapCommand::new(32, 16));
             editor_state.reset_path();
         }
     }
@@ -587,7 +525,7 @@ pub fn draw_ui(world: &mut World) {
 
 fn render_tilemap_outline(
     mut lines: ResMut<DebugLines>,
-    tilemap_q: Query<(&TilemapSize, &Transform)>,
+    tilemap_q: Query<(&TilemapSize, &Transform), With<WorldLayer>>,
 ) {
     let Ok((size, transform)) = tilemap_q.get_single() else {
         return;
@@ -600,19 +538,6 @@ fn render_tilemap_outline(
     }
 }
 
-fn box_lines(origin: Vec3, size: Vec2) -> [(Vec3, Vec3); 4] {
-    let extend = size.extend(0.);
-    let min = origin - Vec3::new(8., 8., 0.);
-    let max = origin + extend - Vec3::new(8., 8., 0.);
-
-    let bottom_right = (min, min + Vec3::new(size.x, 0., 0.));
-    let bottom_up = (min, min + Vec3::new(0., size.y, 0.));
-    let top_left = (max, max - Vec3::new(size.x, 0., 0.));
-    let top_down = (max, max - Vec3::new(0., size.y, 0.));
-
-    [bottom_right, bottom_up, top_left, top_down]
-}
-
 fn spawn_collisions(
     keys: Res<Input<KeyCode>>,
     mut cmds: Commands,
@@ -620,74 +545,81 @@ fn spawn_collisions(
     tiles_pos: Query<(&TilePos, &TileTextureIndex, &TileFlip)>,
 ) {
     if keys.just_pressed(KeyCode::Q) {
-        tiles.storage().unwrap().iter().for_each(|tile_entity| {
-            let Some(tile_entity) = tile_entity else {
-                return;
-            };
-
-            let Ok((pos, id, flip)) = tiles_pos.get(*tile_entity) else {
-                return;
-            };
-
-            let make_right_triangle = |corner, size, dir: Vector| -> Collider {
-                Collider::triangle(
-                    corner + Vector::X * size * dir.x,
-                    corner + Vector::Y * size * dir.y,
-                    corner,
-                )
-            };
-
-            let center = tpos_wpos(pos);
-
-            let dir = match (flip.x, flip.y) {
-                (false, false) => Vector::new(1., 1.),
-                (true, false) => Vector::new(-1., 1.),
-                (false, true) => Vector::new(1., -1.),
-                (true, true) => Vector::new(-1., -1.),
-            };
-            let cross = Collider::compound(vec![
-                (
-                    Position::default(),
-                    Rotation::default(),
-                    Collider::cuboid(4., 16.),
-                ),
-                (
-                    Position::default(),
-                    Rotation::default(),
-                    Collider::cuboid(16., 4.),
-                ),
-            ]);
-            let collider = match id.0 {
-                0 => Collider::cuboid(16., 16.),
-                1 => make_right_triangle(Vector::new(-8., -8.) * dir, 16., dir),
-                2 => Collider::cuboid(4., 16.),
-                3 => Collider::cuboid(16., 4.),
-                4 => cross,
-                5 => Collider::cuboid(16., 4.),
-                _ => unreachable!(),
-            };
-
-            cmds.entity(*tile_entity)
-                .insert((RigidBody::Static, collider, Position::from(center)));
-            if id.0 == 5 {
-                cmds.entity(*tile_entity)
-                    .insert((Platform::default(), Position::from(center + Vector::Y * 5.)));
-            }
-
-            if id.0 == 2 || id.0 == 3 || id.0 == 4 {
-                let pole_type = if id.0 == 2 {
-                    PoleType::Vertical
-                } else if id.0 == 3 {
-                    PoleType::Horizontal
-                } else {
-                    PoleType::Combined
+        tiles
+            .storage(LayerId::World)
+            .unwrap()
+            .iter()
+            .for_each(|tile_entity| {
+                let Some(tile_entity) = tile_entity else {
+                    return;
                 };
-                cmds.entity(*tile_entity).insert((Sensor, Pole(pole_type)));
-            }
 
-            if id.0 == 0 || id.0 == 1 || id.0 == 5 {
-                cmds.entity(*tile_entity).insert(Terrain);
-            }
-        });
+                let Ok((pos, id, flip)) = tiles_pos.get(*tile_entity) else {
+                    return;
+                };
+
+                let make_right_triangle = |corner, size, dir: Vector| -> Collider {
+                    Collider::triangle(
+                        corner + Vector::X * size * dir.x,
+                        corner + Vector::Y * size * dir.y,
+                        corner,
+                    )
+                };
+
+                let center = tpos_wpos(pos);
+
+                let dir = match (flip.x, flip.y) {
+                    (false, false) => Vector::new(1., 1.),
+                    (true, false) => Vector::new(-1., 1.),
+                    (false, true) => Vector::new(1., -1.),
+                    (true, true) => Vector::new(-1., -1.),
+                };
+                let cross = Collider::compound(vec![
+                    (
+                        Position::default(),
+                        Rotation::default(),
+                        Collider::cuboid(4., 16.),
+                    ),
+                    (
+                        Position::default(),
+                        Rotation::default(),
+                        Collider::cuboid(16., 4.),
+                    ),
+                ]);
+                let collider = match id.0 {
+                    0 => Collider::cuboid(16., 16.),
+                    1 => make_right_triangle(Vector::new(-8., -8.) * dir, 16., dir),
+                    2 => Collider::cuboid(4., 16.),
+                    3 => Collider::cuboid(16., 4.),
+                    4 => cross,
+                    5 => Collider::cuboid(16., 4.),
+                    _ => unreachable!(),
+                };
+
+                cmds.entity(*tile_entity).insert((
+                    RigidBody::Static,
+                    collider,
+                    Position::from(center),
+                ));
+                if id.0 == 5 {
+                    cmds.entity(*tile_entity)
+                        .insert((Platform::default(), Position::from(center + Vector::Y * 5.)));
+                }
+
+                if id.0 == 2 || id.0 == 3 || id.0 == 4 {
+                    let pole_type = if id.0 == 2 {
+                        PoleType::Vertical
+                    } else if id.0 == 3 {
+                        PoleType::Horizontal
+                    } else {
+                        PoleType::Combined
+                    };
+                    cmds.entity(*tile_entity).insert((Sensor, Pole(pole_type)));
+                }
+
+                if id.0 == 0 || id.0 == 1 || id.0 == 5 {
+                    cmds.entity(*tile_entity).insert(Terrain);
+                }
+            });
     }
 }

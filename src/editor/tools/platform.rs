@@ -55,6 +55,7 @@ impl<'w, 's> Tool for PlatformTool<'w, 's> {
                     id: TileTextureIndex(5),
                     flip: TileFlip::default(),
                 },
+                editor_state.current_layer,
             );
 
             editor_state.unsaved_changes = true;

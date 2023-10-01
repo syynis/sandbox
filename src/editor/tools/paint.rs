@@ -55,7 +55,9 @@ impl<'w, 's> Tool for PaintTool<'w, 's> {
                     id: TileTextureIndex(0),
                     flip: TileFlip::default(),
                 },
+                editor_state.current_layer,
             );
+
             editor_state.unsaved_changes = true;
         }
 

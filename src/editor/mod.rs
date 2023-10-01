@@ -10,6 +10,7 @@ pub mod tools;
 pub mod ui;
 
 use crate::file_picker;
+use crate::level::layer::LayerId;
 
 use self::tools::{ToolId, ToolSet};
 
@@ -29,6 +30,7 @@ pub struct EditorState {
     pub active_tool: ToolId,
     pub current_loaded_path: Option<PathBuf>,
     pub unsaved_changes: bool,
+    pub current_layer: LayerId,
     // TODO Layers
 }
 
@@ -41,6 +43,10 @@ impl EditorState {
     pub fn next_tool(&mut self) {
         self.active_tool = (self.active_tool + 1) % self.toolset.tools.len();
     }
+
+    pub fn next_layer(&mut self) {
+        self.current_layer = self.current_layer.next();
+    }
 }
 
 impl Default for EditorState {
@@ -51,6 +57,7 @@ impl Default for EditorState {
             active_tool: 0,
             current_loaded_path: None,
             unsaved_changes: false,
+            current_layer: LayerId::World,
         }
     }
 }
@@ -78,6 +85,7 @@ pub enum EditorActions {
     Area,
     Close,
     CycleTool,
+    CycleLayer,
     Load,
     New,
     Save,

@@ -67,7 +67,7 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
         if editor_actions.pressed(EditorActions::ApplyTool) {
             let id: i32 = if self.place_horizontal { 3 } else { 2 };
             let id = if tiles
-                .get_properties(&cursor_tile_pos)
+                .get_properties(&cursor_tile_pos, editor_state.current_layer)
                 .map_or(false, |prop| {
                     prop.id.0 == 4 || (id - prop.id.0 as i32).abs() == 1
                 }) {
@@ -82,6 +82,7 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
                     id: TileTextureIndex(id as u32),
                     flip: TileFlip::default(),
                 },
+                editor_state.current_layer,
             );
 
             editor_state.unsaved_changes = true;

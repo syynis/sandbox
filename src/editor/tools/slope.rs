@@ -49,25 +49,26 @@ impl<'w, 's> Tool for SlopeTool<'w, 's> {
         };
 
         if editor_actions.pressed(EditorActions::ApplyTool) {
+            let current_layer = editor_state.current_layer;
             let neighbors = Neighbors::get_square_neighboring_positions(
                 &cursor_tile_pos,
-                tiles.transform_size().unwrap().1,
+                tiles.transform_size(current_layer).unwrap().1,
                 false,
             );
 
             // TODO more refined testing if tiles are filled / slopes
             let north = neighbors
                 .north
-                .map_or(false, |pos| tiles.get(&pos).is_some());
+                .map_or(false, |pos| tiles.get(&pos, current_layer).is_some());
             let east = neighbors
                 .east
-                .map_or(false, |pos| tiles.get(&pos).is_some());
+                .map_or(false, |pos| tiles.get(&pos, current_layer).is_some());
             let south = neighbors
                 .south
-                .map_or(false, |pos| tiles.get(&pos).is_some());
+                .map_or(false, |pos| tiles.get(&pos, current_layer).is_some());
             let west = neighbors
                 .west
-                .map_or(false, |pos| tiles.get(&pos).is_some());
+                .map_or(false, |pos| tiles.get(&pos, current_layer).is_some());
 
             if north && south || east && west {
                 return;
@@ -88,6 +89,7 @@ impl<'w, 's> Tool for SlopeTool<'w, 's> {
                     id: TileTextureIndex(1),
                     flip,
                 },
+                current_layer,
             );
             editor_state.unsaved_changes = true;
         }

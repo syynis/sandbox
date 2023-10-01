@@ -49,7 +49,7 @@ impl<'w, 's> Tool for EraseTool<'w, 's> {
         };
 
         if editor_actions.pressed(EditorActions::ApplyTool) {
-            tiles.remove(&cursor_tile_pos);
+            tiles.remove(&cursor_tile_pos, editor_state.current_layer);
             editor_state.unsaved_changes = true;
         }
         self.system_state.apply(world);

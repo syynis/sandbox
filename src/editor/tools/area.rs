@@ -131,10 +131,11 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
                                     id: TileTextureIndex(0),
                                     flip: TileFlip::default(),
                                 },
+                                editor_state.current_layer,
                             );
                         }
                         Mode::Delete => {
-                            tiles.remove(&pos);
+                            tiles.remove(&pos, editor_state.current_layer);
                         }
                     }
                 });

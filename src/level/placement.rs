@@ -1,6 +1,8 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_ecs_tilemap::prelude::*;
 
+use super::layer::{FarLayer, Layer, LayerId, NearLayer, WorldLayer};
+
 #[derive(Clone, Debug, Default)]
 pub struct TileProperties {
     pub id: TileTextureIndex,
@@ -17,28 +19,38 @@ pub struct TileUpdateEvent {
     pub modification: TileModification,
 }
 
-// TODO Layer support
+// TODO This is extremely clunky find a way to fix this
+#[derive(SystemParam)]
+pub struct LayerStorage<'w, 's, T: Component + Layer, O1: Component + Layer, O2: Component + Layer>
+{
+    storage: Query<'w, 's, (Entity, &'static mut TileStorage), (With<T>, Without<O1>, Without<O2>)>,
+    // TODO Maybe enforce that each tilemap has the same size and transform
+    transform: Query<
+        'w,
+        's,
+        (&'static Transform, &'static TilemapSize),
+        (With<T>, Without<O1>, Without<O2>),
+    >,
+}
+
 #[derive(SystemParam)]
 pub struct StorageAccess<'w, 's> {
     cmds: Commands<'w, 's>,
-    storage: Query<
-        'w,
-        's,
-        (
-            Entity,
-            &'static Transform,
-            &'static TilemapSize,
-            &'static mut TileStorage,
-        ),
-    >,
-    tiles: Query<'w, 's, &'static TilePos>,
+    world: LayerStorage<'w, 's, WorldLayer, NearLayer, FarLayer>,
+    near: LayerStorage<'w, 's, NearLayer, WorldLayer, FarLayer>,
+    far: LayerStorage<'w, 's, FarLayer, WorldLayer, NearLayer>,
     tile_properties: Query<'w, 's, (&'static TileTextureIndex, &'static TileFlip)>,
     tile_update_event_writer: EventWriter<'w, TileUpdateEvent>,
 }
 
 impl<'w, 's> StorageAccess<'w, 's> {
-    fn set_unchecked(&mut self, pos: &TilePos, tile_properties: TileProperties) -> Option<Entity> {
-        let (tilemap_entity, _, _, mut storage) = self.storage.get_single_mut().ok()?;
+    fn set_unchecked(
+        &mut self,
+        pos: &TilePos,
+        tile_properties: TileProperties,
+        layer: LayerId,
+    ) -> Option<Entity> {
+        let tilemap_entity = self.tilemap_entity(layer)?;
 
         let tile_entity = self
             .cmds
@@ -51,60 +63,68 @@ impl<'w, 's> StorageAccess<'w, 's> {
             })
             .id();
 
+        // TODO can't put this in a seperate function because we cant return mutable storage reference
+        let (_, mut storage) = match layer {
+            LayerId::World => self.world.storage.get_single_mut().ok(),
+            LayerId::Near => self.near.storage.get_single_mut().ok(),
+            LayerId::Far => self.far.storage.get_single_mut().ok(),
+        }?;
         storage.set(pos, tile_entity);
         Some(tile_entity)
     }
 
-    pub fn try_place(&mut self, pos: &TilePos, tile_properties: TileProperties) {
-        let Some(_) = self.get(pos) else {
+    pub fn try_place(&mut self, pos: &TilePos, tile_properties: TileProperties, layer: LayerId) {
+        let Some(_) = self.get(pos, layer) else {
             return;
         };
-        if let Some(new) = self.set_unchecked(pos, tile_properties) {
+        if let Some(new) = self.set_unchecked(pos, tile_properties, layer) {
             self.tile_update_event_writer.send(TileUpdateEvent {
                 modification: TileModification::Added { old: None, new },
             });
         }
     }
 
-    pub fn replace(&mut self, pos: &TilePos, id: TileProperties) {
-        let old = self.get(pos);
+    pub fn replace(&mut self, pos: &TilePos, id: TileProperties, layer: LayerId) {
+        let old = self.get(pos, layer);
         if old.is_some() {
-            self.remove(pos);
+            self.remove(pos, layer);
         }
-        if let Some(new) = self.set_unchecked(pos, id) {
+        if let Some(new) = self.set_unchecked(pos, id, layer) {
             self.tile_update_event_writer.send(TileUpdateEvent {
                 modification: TileModification::Added { old, new },
             });
         }
     }
 
-    fn despawn(&mut self, pos: &TilePos) -> Option<Entity> {
-        let (_, _, _, mut storage) = self.storage.get_single_mut().ok()?;
+    fn despawn(&mut self, pos: &TilePos, layer: LayerId) -> Option<Entity> {
+        // TODO can't put this in a seperate function because we cant return mutable storage reference
+        let (_, mut storage) = match layer {
+            LayerId::World => self.world.storage.get_single_mut().ok(),
+            LayerId::Near => self.near.storage.get_single_mut().ok(),
+            LayerId::Far => self.far.storage.get_single_mut().ok(),
+        }?;
 
-        if let Some(entity) = storage.get(pos) {
-            self.cmds.entity(entity).despawn_recursive();
-            storage.remove(pos);
-            Some(entity)
-        } else {
-            None
-        }
+        let entity = storage.get(pos)?;
+        storage.remove(pos);
+        self.cmds.entity(entity).despawn_recursive();
+        Some(entity)
     }
 
-    pub fn remove(&mut self, pos: &TilePos) {
-        if let Some(old) = self.despawn(pos) {
+    pub fn remove(&mut self, pos: &TilePos, layer: LayerId) {
+        if let Some(old) = self.despawn(pos, layer) {
             self.tile_update_event_writer.send(TileUpdateEvent {
                 modification: TileModification::Removed { old },
             });
         }
     }
 
-    pub fn get(&self, pos: &TilePos) -> Option<Entity> {
-        let storage = self.storage()?;
+    pub fn get(&self, pos: &TilePos, layer: LayerId) -> Option<Entity> {
+        let storage = self.storage(layer)?;
         storage.get(pos)
     }
 
-    pub fn get_properties(&self, pos: &TilePos) -> Option<TileProperties> {
-        let entity = self.get(pos)?;
+    pub fn get_properties(&self, pos: &TilePos, layer: LayerId) -> Option<TileProperties> {
+        let entity = self.get(pos, layer)?;
         let (id, flip) = self.tile_properties.get(entity).ok()?;
         Some(TileProperties {
             id: *id,
@@ -112,24 +132,57 @@ impl<'w, 's> StorageAccess<'w, 's> {
         })
     }
 
-    pub fn transform_size(&self) -> Option<(&Transform, &TilemapSize)> {
-        let (_, map_transform, size, _) = self.storage.get_single().ok()?;
-        Some((map_transform, size))
+    pub fn transform_size(&self, layer: LayerId) -> Option<(&Transform, &TilemapSize)> {
+        let transform = match layer {
+            LayerId::World => self.world.transform.get_single().ok(),
+            LayerId::Near => self.near.transform.get_single().ok(),
+            LayerId::Far => self.far.transform.get_single().ok(),
+        }?;
+        Some(transform)
     }
 
-    pub fn storage(&self) -> Option<&TileStorage> {
-        let (_, _, _, storage) = self.storage.get_single().ok()?;
+    pub fn storage(&self, layer: LayerId) -> Option<&TileStorage> {
+        let (_, storage) = match layer {
+            LayerId::World => self.world.storage.get_single().ok(),
+            LayerId::Near => self.near.storage.get_single().ok(),
+            LayerId::Far => self.far.storage.get_single().ok(),
+        }?;
         Some(storage)
     }
 
-    pub fn clear(&mut self) {
-        let (_, _, _, mut storage) = self.storage.get_single_mut().unwrap();
+    pub fn tilemap_entity(&self, layer: LayerId) -> Option<Entity> {
+        let (entity, _) = match layer {
+            LayerId::World => self.world.storage.get_single().ok(),
+            LayerId::Near => self.near.storage.get_single().ok(),
+            LayerId::Far => self.far.storage.get_single().ok(),
+        }?;
+        Some(entity)
+    }
 
-        self.tiles.iter().for_each(|tile| {
-            if let Some(entity) = storage.get(&tile) {
-                storage.remove(&tile);
-                self.cmds.entity(entity).despawn_recursive();
+    pub fn clear(&mut self, layer: LayerId) {
+        // TODO can't put this in a seperate function because we cant return mutable storage reference
+        let Some((_, size)) = self.transform_size(layer) else {
+            return;
+        };
+        let size = size.clone();
+
+        let Ok((_, mut storage)) = (match layer {
+            LayerId::World => self.world.storage.get_single_mut(),
+            LayerId::Near => self.near.storage.get_single_mut(),
+            LayerId::Far => self.far.storage.get_single_mut(),
+        }) else {
+            return;
+        };
+        let mut pos_to_remove = Vec::new();
+        storage.iter_mut().enumerate().for_each(|(idx, tile)| {
+            pos_to_remove.push(TilePos {
+                x: idx as u32 % size.x,
+                y: idx as u32 / size.x,
+            });
+            if let Some(tile) = tile {
+                self.cmds.entity(*tile).despawn_recursive();
             }
         });
+        pos_to_remove.iter().for_each(|pos| storage.remove(&pos));
     }
 }
