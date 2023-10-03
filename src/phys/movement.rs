@@ -13,10 +13,16 @@ pub struct MovementPlugin;
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(InputManagerPlugin::<ActionKind>::default());
-        app.add_systems(Update, movement);
-        app.add_systems(Update, handle_pole_climb);
-        app.add_systems(Update, handle_pole_movement);
-        app.add_systems(Update, handle_gravity);
+        app.add_systems(
+            Update,
+            (
+                (horizontal_movement, jump).chain(),
+                pole_climb,
+                pole_movement,
+                pole_gravity,
+            ),
+        );
+        app.insert_resource(DisabledInputs::default());
     }
 }
 
@@ -89,108 +95,124 @@ impl Default for Control {
     }
 }
 
-fn movement(
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct DisabledInputs(HashMap<ActionKind, Timer>);
+
+fn horizontal_movement(
     action_state_query: Query<&ActionState<ActionKind>>,
-    mut query_player: Query<
-        (
-            Entity,
-            &Position,
-            &mut LinearVelocity,
-            &ShapeHits,
-            &mut LookDir,
-        ),
+    mut player_query: Query<
+        (&mut LinearVelocity, &mut LookDir),
         (With<Controllable>, Without<PoleClimb>),
     >,
+    disabled_inputs: Res<DisabledInputs>,
+) {
+    let max_speed = 128.;
+    let Ok(action_state) = action_state_query.get_single() else {
+        return;
+    };
+
+    let Ok((mut vel, mut look_dir)) = player_query.get_single_mut() else {
+        return;
+    };
+
+    let left_enabled = disabled_inputs
+        .get(&ActionKind::Left)
+        .map_or(true, |timer| timer.finished());
+    let right_enabled = disabled_inputs
+        .get(&ActionKind::Right)
+        .map_or(true, |timer| timer.finished());
+
+    if action_state.pressed(ActionKind::Left) && left_enabled {
+        vel.x -= 16.;
+        *look_dir = LookDir::Left;
+    }
+    if action_state.pressed(ActionKind::Right) && right_enabled {
+        vel.x += 16.;
+        *look_dir = LookDir::Right;
+    }
+
+    vel.x = vel.x.clamp(-max_speed, max_speed);
+
+    vel.x *= 0.95;
+}
+
+fn jump(
+    action_state_query: Query<&ActionState<ActionKind>>,
+    mut player_query: Query<
+        (Entity, &Position, &mut LinearVelocity, &ShapeHits, &LookDir),
+        (With<Controllable>, Without<PoleClimb>),
+    >,
+    time: Res<Time>,
     q_terrain: Query<Entity, With<Terrain>>,
     spatial_query: SpatialQuery,
-    time: Res<Time>,
+    mut near_wall_coyote: Local<Stopwatch>,
     mut jump_extender: Local<Stopwatch>,
     mut coyote: Local<Stopwatch>,
-    mut near_wall_coyote: Local<Stopwatch>,
-    mut disabled_inputs: Local<HashMap<ActionKind, Timer>>,
+    mut disabled_inputs: ResMut<DisabledInputs>,
 ) {
-    for action_state in action_state_query.iter() {
-        for disabled_input in disabled_inputs.iter_mut() {
-            disabled_input.1.tick(time.delta());
+    let Ok(action_state) = action_state_query.get_single() else {
+        return;
+    };
+
+    let Ok((player_entity, pos, mut vel, ground, look_dir)) = player_query.get_single_mut() else {
+        return;
+    };
+
+    for disabled_input in disabled_inputs.iter_mut() {
+        disabled_input.1.tick(time.delta());
+    }
+
+    jump_extender.tick(time.delta());
+    coyote.tick(time.delta());
+    near_wall_coyote.tick(time.delta());
+
+    let grounded = !ground.is_empty();
+    let near_wall = if let Some(hit) = spatial_query.cast_ray(
+        **pos,
+        look_dir.as_vec(),
+        7.5,
+        true,
+        SpatialQueryFilter::new().without_entities([player_entity]),
+    ) {
+        q_terrain.get(hit.entity).ok().is_some()
+    } else {
+        false
+    };
+
+    if grounded {
+        coyote.reset();
+    }
+    if near_wall && !grounded {
+        near_wall_coyote.reset();
+    }
+    let was_near_wall = near_wall_coyote.elapsed_secs() < 0.1;
+
+    let falling = vel.y < 0.;
+    let can_coyote = coyote.elapsed_secs() < 0.15 && falling;
+    let can_jump = grounded || can_coyote;
+
+    if action_state.just_pressed(ActionKind::Jump) {
+        let press_in_look_dir = match *look_dir {
+            LookDir::Left => action_state.pressed(ActionKind::Left),
+            LookDir::Right => action_state.pressed(ActionKind::Right),
+        };
+        if press_in_look_dir && (near_wall || was_near_wall) {
+            vel.y = 96.;
+            **vel += look_dir.opposite().as_vec() * 160.;
+            disabled_inputs.insert(
+                look_dir.as_action_kind(),
+                Timer::new(Duration::from_secs_f32(0.5), TimerMode::Once),
+            );
         }
-        jump_extender.tick(time.delta());
-        near_wall_coyote.tick(time.delta());
-        coyote.tick(time.delta());
-        for (player_entity, pos, mut vel, ground, mut look_dir) in query_player.iter_mut() {
-            let grounded = !ground.is_empty();
-            if grounded {
-                coyote.reset();
-            }
 
-            let air_resistance = if !grounded { 8. } else { 0. };
-            let falling = vel.y < 0.;
-            let can_coyote = coyote.elapsed_secs() < 0.15 && falling;
-            let can_jump = grounded || can_coyote;
-            if action_state.just_pressed(ActionKind::Jump) && can_jump {
-                vel.y = 96.;
-                jump_extender.reset();
-            }
-
-            let near_wall = if let Some(hit) = spatial_query.cast_ray(
-                **pos,
-                look_dir.as_vec(),
-                7.5,
-                true,
-                SpatialQueryFilter::new().without_entities([player_entity]),
-            ) {
-                q_terrain.get(hit.entity).ok().is_some()
-            } else {
-                false
-            };
-
-            if near_wall && !grounded {
-                near_wall_coyote.reset();
-            }
-
-            // TODO cleaner
-            // Wall jump
-            let was_near_wall = near_wall_coyote.elapsed_secs() < 0.1;
-
-            let press_in_look_dir = match *look_dir {
-                LookDir::Left => action_state.pressed(ActionKind::Left),
-                LookDir::Right => action_state.pressed(ActionKind::Right),
-            };
-            if action_state.just_pressed(ActionKind::Jump) && press_in_look_dir {
-                if near_wall || was_near_wall {
-                    vel.y += 128.;
-                    **vel += look_dir.opposite().as_vec() * 160.;
-                    disabled_inputs.insert(
-                        look_dir.as_action_kind(),
-                        Timer::new(Duration::from_secs_f32(0.5), TimerMode::Once),
-                    );
-                }
-            }
-
-            if action_state.pressed(ActionKind::Jump)
-                && !grounded
-                && jump_extender.elapsed_secs() < 0.2
-            {
-                vel.y += 4.;
-            }
-
-            if action_state.pressed(ActionKind::Left)
-                && disabled_inputs
-                    .get(&ActionKind::Left)
-                    .map_or_else(|| true, |timer| timer.finished())
-            {
-                vel.x -= 16. - air_resistance;
-                *look_dir = LookDir::Left;
-            }
-            if action_state.pressed(ActionKind::Right)
-                && disabled_inputs
-                    .get(&ActionKind::Right)
-                    .map_or_else(|| true, |timer| timer.finished())
-            {
-                vel.x += 16. - air_resistance;
-                *look_dir = LookDir::Right;
-            }
-            vel.x *= 0.95;
+        if can_jump {
+            vel.y = 96.;
+            jump_extender.reset();
         }
+    }
+
+    if action_state.pressed(ActionKind::Jump) && !grounded && jump_extender.elapsed_secs() < 0.2 {
+        vel.y += 4.;
     }
 }
 
@@ -198,7 +220,7 @@ fn movement(
 #[reflect(Component)]
 pub struct PoleClimb(pub PoleType);
 
-fn handle_pole_climb(
+fn pole_climb(
     mut cmds: Commands,
     poles: Query<&Pole>,
     mut player: Query<
@@ -240,7 +262,7 @@ fn handle_pole_climb(
     }
 }
 
-fn handle_pole_movement(
+fn pole_movement(
     mut cmds: Commands,
     mut player: Query<
         (Entity, &mut LinearVelocity, &mut GravityScale, &PoleClimb),
@@ -302,7 +324,7 @@ fn handle_pole_movement(
     }
 }
 
-fn handle_gravity(mut climb: RemovedComponents<PoleClimb>, mut gravity: Query<&mut GravityScale>) {
+fn pole_gravity(mut climb: RemovedComponents<PoleClimb>, mut gravity: Query<&mut GravityScale>) {
     for e in climb.iter() {
         if let Some(mut gravity) = gravity.get_mut(e).ok() {
             gravity.0 = 1.0;
