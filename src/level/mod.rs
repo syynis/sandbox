@@ -95,9 +95,15 @@ impl Command for SpawnMapCommand {
                 },))
                 .id();
             match layer {
-                layer::LayerId::World => world.entity_mut(map).insert(WorldLayer),
-                layer::LayerId::Near => world.entity_mut(map).insert(NearLayer),
-                layer::LayerId::Far => world.entity_mut(map).insert(FarLayer),
+                layer::LayerId::World => world
+                    .entity_mut(map)
+                    .insert((WorldLayer, Name::new("WorldLayer"))),
+                layer::LayerId::Near => world
+                    .entity_mut(map)
+                    .insert((NearLayer, Name::new("NearLayer"))),
+                layer::LayerId::Far => world
+                    .entity_mut(map)
+                    .insert((FarLayer, Name::new("FarLayer"))),
             };
         }
     }

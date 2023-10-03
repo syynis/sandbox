@@ -35,7 +35,7 @@ impl<B: Bundle> SpawnPlayerCommand<B> {
 impl<B: Bundle> Command for SpawnPlayerCommand<B> {
     fn apply(self, world: &mut World) {
         world.spawn((
-            Player,
+            (Name::new("Player"), Player),
             Position(self.pos),
             Collider::cuboid(self.size.x, self.size.y),
             RigidBody::Dynamic,

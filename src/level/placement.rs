@@ -48,13 +48,17 @@ impl<'w, 's> StorageAccess<'w, 's> {
 
         let tile_entity = self
             .cmds
-            .spawn(TileBundle {
-                position: *pos,
-                tilemap_id: TilemapId(tilemap_entity),
-                texture_index: tile_properties.id,
-                flip: tile_properties.flip,
-                ..default()
-            })
+            .spawn((
+                Name::new("Tile"),
+                TileBundle {
+                    position: *pos,
+                    tilemap_id: TilemapId(tilemap_entity),
+                    texture_index: tile_properties.id,
+                    flip: tile_properties.flip,
+                    color: TileColor(Color::RED),
+                    ..default()
+                },
+            ))
             .id();
 
         // TODO can't put this in a seperate function because we cant return mutable storage reference

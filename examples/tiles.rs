@@ -292,14 +292,20 @@ fn setup(mut cmds: Commands) {
         },
     ));
 
-    cmds.spawn((InputManagerBundle::<EditorActions> {
-        input_map: editor_actions_map(),
-        ..default()
-    },));
-    cmds.spawn((InputManagerBundle::<ToolActions> {
-        input_map: tool_actions_map(),
-        ..default()
-    },));
+    cmds.spawn((
+        (InputManagerBundle::<EditorActions> {
+            input_map: editor_actions_map(),
+            ..default()
+        },),
+        Name::new("EditorActions"),
+    ));
+    cmds.spawn((
+        (InputManagerBundle::<ToolActions> {
+            input_map: tool_actions_map(),
+            ..default()
+        },),
+        Name::new("ToolActions"),
+    ));
     cmds.add(SpawnMapCommand::new(32, 16));
 }
 
