@@ -16,17 +16,20 @@ impl Plugin for MovementPlugin {
         app.add_systems(
             Update,
             (
-                (horizontal_movement, jump).chain(),
+                setup_movement_state,
+                (horizontal_movement, jump, wall_jump).after(setup_movement_state),
                 pole_climb,
                 pole_movement,
                 pole_gravity,
             ),
         );
-        app.insert_resource(DisabledInputs::default());
+        app.insert_resource(DisabledInputs::default())
+            .insert_resource(MovementState::default());
+        app.register_type::<MovementState>();
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub enum LookDir {
     Left,
     Right,
@@ -98,15 +101,77 @@ impl Default for Control {
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct DisabledInputs(HashMap<ActionKind, Timer>);
 
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
+pub struct MovementState {
+    pub grounded: bool,
+    // TODO combine these into one
+    pub facing_wall: bool,
+    pub wall_left: bool,
+    pub wall_right: bool,
+    pub falling: bool,
+}
+
+// TODO Think about extract movement constants. Jump height, horizontal velocity, wall jump impulse, etc.
+fn setup_movement_state(
+    player_query: Query<
+        (
+            Entity,
+            &Position,
+            &LinearVelocity,
+            &ShapeHits,
+            &LookDir,
+            &ColliderAabb,
+        ),
+        With<Controllable>,
+    >,
+    q_terrain: Query<Entity, With<Terrain>>,
+    spatial_query: SpatialQuery,
+    mut movement_state: ResMut<MovementState>,
+) {
+    let Ok((player_entity, pos, vel, ground, look_dir, collider_aabb)) = player_query.get_single()
+    else {
+        return;
+    };
+
+    let grounded = !ground.is_empty();
+    let falling = vel.y < 0.;
+
+    // Casts a ray just outside the player into the given look direction
+    let ray_in_look_dir = |dir: LookDir| -> bool {
+        spatial_query
+            .cast_ray(
+                **pos,
+                dir.as_vec(),
+                collider_aabb.half_extents().x + 0.5,
+                true,
+                SpatialQueryFilter::new().without_entities([player_entity]),
+            )
+            .map_or(false, |hit| q_terrain.get(hit.entity).ok().is_some())
+    };
+
+    let facing_wall = ray_in_look_dir(look_dir.clone());
+    let wall_left = ray_in_look_dir(LookDir::Left);
+    let wall_right = ray_in_look_dir(LookDir::Right);
+
+    *movement_state = MovementState {
+        grounded,
+        facing_wall,
+        wall_left,
+        wall_right,
+        falling,
+    }
+}
+
 fn horizontal_movement(
     action_state_query: Query<&ActionState<ActionKind>>,
     mut player_query: Query<
         (&mut LinearVelocity, &mut LookDir),
         (With<Controllable>, Without<PoleClimb>),
     >,
+    movement_state: Res<MovementState>,
     disabled_inputs: Res<DisabledInputs>,
 ) {
-    let max_speed = 128.;
     let Ok(action_state) = action_state_query.get_single() else {
         return;
     };
@@ -115,6 +180,16 @@ fn horizontal_movement(
         return;
     };
 
+    let MovementState {
+        falling,
+        wall_left: left_wall,
+        wall_right: right_wall,
+        ..
+    } = *movement_state;
+
+    let max_speed = 128.;
+
+    // Disabled movement from wall jump
     let left_enabled = disabled_inputs
         .get(&ActionKind::Left)
         .map_or(true, |timer| timer.finished());
@@ -123,38 +198,84 @@ fn horizontal_movement(
         .map_or(true, |timer| timer.finished());
 
     if action_state.pressed(ActionKind::Left) && left_enabled {
-        vel.x -= 16.;
+        vel.x -= 6.;
         *look_dir = LookDir::Left;
+
+        // Slide down walls
+        if left_wall && falling {
+            vel.y = -30.;
+        }
     }
     if action_state.pressed(ActionKind::Right) && right_enabled {
-        vel.x += 16.;
+        vel.x += 6.;
         *look_dir = LookDir::Right;
+
+        // Slide down walls
+        if right_wall && falling {
+            vel.y = -30.;
+        }
     }
 
+    // Never exceed max speed
     vel.x = vel.x.clamp(-max_speed, max_speed);
-
-    vel.x *= 0.95;
 }
 
 fn jump(
     action_state_query: Query<&ActionState<ActionKind>>,
+    mut player_query: Query<&mut LinearVelocity, (With<Controllable>, Without<PoleClimb>)>,
+    time: Res<Time>,
+    movement_state: Res<MovementState>,
+    mut jump_extender: Local<Stopwatch>,
+    mut coyote: Local<Stopwatch>,
+) {
+    let Ok(action_state) = action_state_query.get_single() else {
+        return;
+    };
+
+    let Ok(mut vel) = player_query.get_single_mut() else {
+        return;
+    };
+
+    jump_extender.tick(time.delta());
+    coyote.tick(time.delta());
+
+    let MovementState {
+        grounded, falling, ..
+    } = *movement_state;
+
+    if grounded {
+        coyote.reset();
+    }
+
+    let can_coyote = coyote.elapsed_secs() < 0.15 && falling;
+    let can_jump = grounded || can_coyote;
+
+    if action_state.just_pressed(ActionKind::Jump) && can_jump {
+        vel.y = 96.;
+        jump_extender.reset();
+    }
+
+    // Hold jump to extend height
+    if action_state.pressed(ActionKind::Jump) && !grounded && jump_extender.elapsed_secs() < 0.2 {
+        vel.y += 4.;
+    }
+}
+
+fn wall_jump(
+    action_state_query: Query<&ActionState<ActionKind>>,
     mut player_query: Query<
-        (Entity, &Position, &mut LinearVelocity, &ShapeHits, &LookDir),
+        (&mut LinearVelocity, &LookDir),
         (With<Controllable>, Without<PoleClimb>),
     >,
     time: Res<Time>,
-    q_terrain: Query<Entity, With<Terrain>>,
-    spatial_query: SpatialQuery,
-    mut near_wall_coyote: Local<Stopwatch>,
-    mut jump_extender: Local<Stopwatch>,
-    mut coyote: Local<Stopwatch>,
+    movement_state: Res<MovementState>,
     mut disabled_inputs: ResMut<DisabledInputs>,
 ) {
     let Ok(action_state) = action_state_query.get_single() else {
         return;
     };
 
-    let Ok((player_entity, pos, mut vel, ground, look_dir)) = player_query.get_single_mut() else {
+    let Ok((mut vel, look_dir)) = player_query.get_single_mut() else {
         return;
     };
 
@@ -162,57 +283,21 @@ fn jump(
         disabled_input.1.tick(time.delta());
     }
 
-    jump_extender.tick(time.delta());
-    coyote.tick(time.delta());
-    near_wall_coyote.tick(time.delta());
-
-    let grounded = !ground.is_empty();
-    let near_wall = if let Some(hit) = spatial_query.cast_ray(
-        **pos,
-        look_dir.as_vec(),
-        7.5,
-        true,
-        SpatialQueryFilter::new().without_entities([player_entity]),
-    ) {
-        q_terrain.get(hit.entity).ok().is_some()
-    } else {
-        false
-    };
-
-    if grounded {
-        coyote.reset();
-    }
-    if near_wall && !grounded {
-        near_wall_coyote.reset();
-    }
-    let was_near_wall = near_wall_coyote.elapsed_secs() < 0.1;
-
-    let falling = vel.y < 0.;
-    let can_coyote = coyote.elapsed_secs() < 0.15 && falling;
-    let can_jump = grounded || can_coyote;
+    let MovementState {
+        facing_wall: near_wall,
+        ..
+    } = *movement_state;
 
     if action_state.just_pressed(ActionKind::Jump) {
-        let press_in_look_dir = match *look_dir {
-            LookDir::Left => action_state.pressed(ActionKind::Left),
-            LookDir::Right => action_state.pressed(ActionKind::Right),
-        };
-        if press_in_look_dir && (near_wall || was_near_wall) {
-            vel.y = 96.;
-            **vel += look_dir.opposite().as_vec() * 160.;
+        let press_in_look_dir = action_state.pressed(look_dir.as_action_kind());
+        if press_in_look_dir && near_wall {
+            vel.y = 128.;
+            **vel += look_dir.opposite().as_vec() * 192.;
             disabled_inputs.insert(
                 look_dir.as_action_kind(),
                 Timer::new(Duration::from_secs_f32(0.5), TimerMode::Once),
             );
         }
-
-        if can_jump {
-            vel.y = 96.;
-            jump_extender.reset();
-        }
-    }
-
-    if action_state.pressed(ActionKind::Jump) && !grounded && jump_extender.elapsed_secs() < 0.2 {
-        vel.y += 4.;
     }
 }
 
