@@ -1,19 +1,20 @@
-use bevy::{
-    ecs::system::{SystemParam, SystemState},
-    prelude::*,
-};
+use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::{
     editor::EditorState,
-    ui::widget::{basic_widget, BasicWidget},
+    level::layer::{ALL_LAYERS, ALL_LAYER_NAMES},
+    ui::{
+        widget::{basic_widget, fn_widget, BasicWidget},
+        widgets::PanelTitle,
+    },
 };
 
 #[derive(Default, Clone)]
 pub struct EditorToolBar;
 
 impl BasicWidget for EditorToolBar {
-    fn new(world: &mut World, ui: &egui::Ui) -> Self {
+    fn new(_: &mut World, _: &egui::Ui) -> Self {
         Self::default()
     }
 
@@ -22,31 +23,23 @@ impl BasicWidget for EditorToolBar {
             .id_source(id.with("vscroll"))
             .show(ui, |ui| {
                 basic_widget::<ToolPicker>(world, ui, id.with("tool_picker"));
-                ui.allocate_space(ui.available_size());
             });
         ui.separator();
+        basic_widget::<LayersPanel>(world, ui, id);
     }
 }
 
-#[derive(SystemParam)]
-pub struct ToolPickerParams<'w> {
-    pub editor_state: ResMut<'w, EditorState>,
-}
-pub struct ToolPicker<'w: 'static> {
-    system_state: SystemState<ToolPickerParams<'w>>,
-}
+#[derive(Default)]
+pub struct ToolPicker;
 
-impl<'w> BasicWidget for ToolPicker<'w> {
-    fn new(world: &mut World, ui: &egui::Ui) -> Self {
-        Self {
-            system_state: SystemState::new(world),
-        }
+impl BasicWidget for ToolPicker {
+    fn new(_: &mut World, _: &egui::Ui) -> Self {
+        Self::default()
     }
 
-    fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, id: egui::Id) {
-        let ToolPickerParams { mut editor_state } = self.system_state.get_mut(world);
+    fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, _: egui::Id) {
+        let mut editor_state = world.resource_mut::<EditorState>();
         let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true);
-
         ui.with_layout(layout, |ui| {
             for tool_id in editor_state.toolset.tool_order.clone().iter() {
                 let Some(tool_data) = editor_state.toolset.tools.get(tool_id) else {
@@ -65,5 +58,53 @@ impl<'w> BasicWidget for ToolPicker<'w> {
                 }
             }
         });
+    }
+}
+
+#[derive(Default)]
+pub struct LayersPanel;
+
+impl BasicWidget for LayersPanel {
+    fn new(_: &mut World, _: &egui::Ui) -> Self {
+        Self::default()
+    }
+
+    fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, id: egui::Id) {
+        fn_widget::<PanelTitle>(world, ui, id.with("title"), "Layers");
+        egui::ScrollArea::vertical()
+            .max_height(ui.available_height() - 25.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                basic_widget::<LayersList>(world, ui, id.with("layer_list"));
+                ui.allocate_space(ui.available_size());
+            });
+    }
+}
+
+#[derive(Default)]
+pub struct LayersList;
+
+impl BasicWidget for LayersList {
+    fn new(_: &mut World, _: &egui::Ui) -> Self {
+        Self::default()
+    }
+
+    fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, _: egui::Id) {
+        let state = world.resource::<EditorState>();
+        let mut current_layer = state.current_layer;
+        let mut changed = false;
+        let layout = egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true);
+        ui.with_layout(layout, |ui| {
+            for (id, name) in ALL_LAYERS.iter().zip(ALL_LAYER_NAMES.iter()) {
+                changed |= ui
+                    .selectable_value(&mut current_layer, *id, name.to_owned())
+                    .changed();
+            }
+        });
+
+        if changed {
+            let mut state = world.resource_mut::<EditorState>();
+            state.current_layer = current_layer;
+        }
     }
 }

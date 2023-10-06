@@ -7,7 +7,7 @@ use leafwing_input_manager::prelude::ActionState;
 
 use crate::{
     editor::{EditorActions, ToolActions},
-    level::{placement::TileProperties, tpos_wpos},
+    level::{layer::ALL_LAYERS, placement::TileProperties, tpos_wpos},
     util::box_lines,
 };
 
@@ -22,17 +22,23 @@ struct AreaToolParams<'w, 's> {
     pub tool_actions: Query<'w, 's, &'static ActionState<ToolActions>>,
 }
 
+#[derive(Default, PartialEq, Copy, Clone)]
 enum Mode {
-    Place,
-    Delete,
+    #[default]
+    PlaceLayer,
+    DeleteLayer,
+    PlaceAllLayers,
+    DeleteAllLayers,
 }
 
 impl Mode {
     fn next(&mut self) -> Self {
         use Mode::*;
         match self {
-            Place => Delete,
-            Delete => Place,
+            PlaceLayer => DeleteLayer,
+            DeleteLayer => PlaceAllLayers,
+            PlaceAllLayers => DeleteAllLayers,
+            DeleteAllLayers => PlaceLayer,
         }
     }
 }
@@ -51,7 +57,7 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
             start: None,
             temp_end: None,
             end: None,
-            mode: Mode::Place,
+            mode: Mode::PlaceLayer,
         }
     }
 
@@ -124,7 +130,7 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
                 (min.y..=max.y).for_each(|y| {
                     let pos = TilePos { x, y };
                     match self.mode {
-                        Mode::Place => {
+                        Mode::PlaceLayer => {
                             tiles.replace(
                                 &pos,
                                 TileProperties {
@@ -134,9 +140,24 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
                                 editor_state.current_layer,
                             );
                         }
-                        Mode::Delete => {
+                        Mode::DeleteLayer => {
                             tiles.remove(&pos, editor_state.current_layer);
                         }
+
+                        Mode::PlaceAllLayers => ALL_LAYERS.iter().for_each(|layer| {
+                            tiles.replace(
+                                &pos,
+                                TileProperties {
+                                    id: TileTextureIndex(0),
+                                    flip: TileFlip::default(),
+                                },
+                                *layer,
+                            )
+                        }),
+
+                        Mode::DeleteAllLayers => ALL_LAYERS
+                            .iter()
+                            .for_each(|layer| tiles.remove(&pos, *layer)),
                     }
                 });
             });

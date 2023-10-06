@@ -1,7 +1,10 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_ecs_tilemap::prelude::*;
 
-use super::layer::{FarLayer, Layer, LayerId, NearLayer, WorldLayer};
+use super::{
+    layer::{FarLayer, Layer, LayerId, NearLayer, WorldLayer},
+    tile::texture_name,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct TileProperties {
@@ -46,16 +49,21 @@ impl<'w, 's> StorageAccess<'w, 's> {
     ) -> Option<Entity> {
         let tilemap_entity = self.tilemap_entity(layer)?;
 
+        let color = match layer {
+            LayerId::World => Color::rgba_u8(255, 255, 255, 191),
+            LayerId::Near => Color::rgba_u8(0, 255, 0, 127),
+            LayerId::Far => Color::rgba_u8(255, 0, 0, 63),
+        };
         let tile_entity = self
             .cmds
             .spawn((
-                Name::new("Tile"),
+                Name::new(texture_name(tile_properties.id)),
                 TileBundle {
                     position: *pos,
                     tilemap_id: TilemapId(tilemap_entity),
                     texture_index: tile_properties.id,
                     flip: tile_properties.flip,
-                    color: TileColor(Color::RED),
+                    color: TileColor(color),
                     ..default()
                 },
             ))

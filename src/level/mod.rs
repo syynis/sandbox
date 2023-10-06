@@ -16,6 +16,7 @@ use crate::level::serialization::TilePosRef;
 pub mod layer;
 pub mod placement;
 pub mod serialization;
+pub mod tile;
 
 pub struct LevelPlugin;
 
@@ -90,20 +91,25 @@ impl Command for SpawnMapCommand {
                     storage,
                     texture: TilemapTexture::Single(tiles),
                     tile_size,
-
                     ..default()
                 },))
                 .id();
             match layer {
-                layer::LayerId::World => world
-                    .entity_mut(map)
-                    .insert((WorldLayer, Name::new("WorldLayer"))),
-                layer::LayerId::Near => world
-                    .entity_mut(map)
-                    .insert((NearLayer, Name::new("NearLayer"))),
-                layer::LayerId::Far => world
-                    .entity_mut(map)
-                    .insert((FarLayer, Name::new("FarLayer"))),
+                layer::LayerId::World => world.entity_mut(map).insert((
+                    WorldLayer,
+                    Name::new("WorldLayer"),
+                    Transform::from_xyz(0., 0., 2.),
+                )),
+                layer::LayerId::Near => world.entity_mut(map).insert((
+                    NearLayer,
+                    Name::new("NearLayer"),
+                    Transform::from_xyz(0., 0., 1.),
+                )),
+                layer::LayerId::Far => world.entity_mut(map).insert((
+                    FarLayer,
+                    Name::new("FarLayer"),
+                    Transform::from_xyz(0., 0., 0.),
+                )),
             };
         }
     }

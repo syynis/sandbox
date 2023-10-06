@@ -5,8 +5,10 @@ pub const NEAR_BACKGROUND: f32 = 1.0f32;
 pub const FAR_BACKGROUND: f32 = 2.0f32;
 
 pub const ALL_LAYERS: [LayerId; 3] = [LayerId::World, LayerId::Near, LayerId::Far];
+pub const ALL_LAYER_NAMES: [&str; 3] = ["World", "Near", "Far"];
+
 #[repr(u8)]
-#[derive(Default, Clone, Copy, Reflect)]
+#[derive(Default, Clone, Copy, Reflect, PartialEq)]
 pub enum LayerId {
     #[default]
     World,
@@ -29,6 +31,7 @@ pub trait Layer {
     /// Returns the z-index for the layer.
     fn z_index() -> f32;
     fn layer_id() -> LayerId;
+    fn name() -> String;
 }
 
 #[derive(Component)]
@@ -40,6 +43,10 @@ impl Layer for WorldLayer {
     }
     fn layer_id() -> LayerId {
         LayerId::World
+    }
+
+    fn name() -> String {
+        "World".to_string()
     }
 }
 
@@ -53,6 +60,10 @@ impl Layer for NearLayer {
     fn layer_id() -> LayerId {
         LayerId::Near
     }
+
+    fn name() -> String {
+        "Near".to_string()
+    }
 }
 
 #[derive(Component)]
@@ -64,5 +75,9 @@ impl Layer for FarLayer {
     }
     fn layer_id() -> LayerId {
         LayerId::Far
+    }
+
+    fn name() -> String {
+        "Far".to_string()
     }
 }
