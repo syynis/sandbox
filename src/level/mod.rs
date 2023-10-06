@@ -1,16 +1,13 @@
 use anyhow::Context;
 use anyhow::Result;
-use bevy::ecs::query::WorldQuery;
 use bevy::{ecs::system::Command, prelude::*};
 use bevy_ecs_tilemap::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{input::CursorPos, nono::Nonogram};
 
-use self::{
-    layer::{FarLayer, NearLayer, WorldLayer, ALL_LAYERS},
-    placement::TileUpdateEvent,
-};
+use self::layer::Layer;
+use self::{layer::ALL_LAYERS, placement::TileUpdateEvent};
 use crate::level::serialization::TilePosRef;
 
 pub mod layer;
@@ -82,35 +79,20 @@ impl Command for SpawnMapCommand {
             let grid_size = tile_size.into();
             let map_type = TilemapType::Square;
 
-            let map = world
-                .entity_mut(tilemap_entity)
-                .insert((TilemapBundle {
+            world.entity_mut(tilemap_entity).insert((
+                TilemapBundle {
                     grid_size,
                     map_type,
                     size,
                     storage,
                     texture: TilemapTexture::Single(tiles),
                     tile_size,
+                    transform: Transform::from_xyz(0., 0., layer.z_index()),
                     ..default()
-                },))
-                .id();
-            match layer {
-                layer::LayerId::World => world.entity_mut(map).insert((
-                    WorldLayer,
-                    Name::new("WorldLayer"),
-                    Transform::from_xyz(0., 0., 2.),
-                )),
-                layer::LayerId::Near => world.entity_mut(map).insert((
-                    NearLayer,
-                    Name::new("NearLayer"),
-                    Transform::from_xyz(0., 0., 1.),
-                )),
-                layer::LayerId::Far => world.entity_mut(map).insert((
-                    FarLayer,
-                    Name::new("FarLayer"),
-                    Transform::from_xyz(0., 0., 0.),
-                )),
-            };
+                },
+                layer.clone(),
+                Name::new(layer.name()),
+            ));
         }
     }
 }

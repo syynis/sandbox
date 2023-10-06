@@ -5,7 +5,7 @@ use bevy_ecs_tilemap::tiles::{TileFlip, TilePos, TileTextureIndex};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    layer::LayerId,
+    layer::Layer,
     placement::{StorageAccess, TileProperties},
 };
 
@@ -89,7 +89,7 @@ impl<'w, 's> LevelSerializer<'w, 's> {
     pub fn load_from_file(&mut self, path: PathBuf) {
         if let Some(data) = fs::read_to_string(path).ok() {
             if let Some(level) = ron::from_str::<SerializableLevel>(&data).ok() {
-                self.storage_access.clear(LayerId::World);
+                self.storage_access.clear(Layer::World);
                 for tile in level.tiles {
                     self.storage_access.replace(
                         &tile.pos,
@@ -97,7 +97,7 @@ impl<'w, 's> LevelSerializer<'w, 's> {
                             id: tile.id,
                             flip: tile.flip,
                         },
-                        LayerId::World,
+                        Layer::World,
                     );
                 }
             }

@@ -3,7 +3,7 @@ use bevy_egui::egui;
 
 use crate::{
     editor::EditorState,
-    level::layer::{ALL_LAYERS, ALL_LAYER_NAMES},
+    level::layer::ALL_LAYERS,
     ui::{
         widget::{basic_widget, fn_widget, BasicWidget},
         widgets::PanelTitle,
@@ -95,9 +95,9 @@ impl BasicWidget for LayersList {
         let mut changed = false;
         let layout = egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true);
         ui.with_layout(layout, |ui| {
-            for (id, name) in ALL_LAYERS.iter().zip(ALL_LAYER_NAMES.iter()) {
+            for layer in ALL_LAYERS.iter() {
                 changed |= ui
-                    .selectable_value(&mut current_layer, *id, name.to_owned())
+                    .selectable_value(&mut current_layer, *layer, layer.name())
                     .changed();
             }
         });

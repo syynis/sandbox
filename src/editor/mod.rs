@@ -1,4 +1,3 @@
-use bevy_ecs_tilemap::tiles::TileStorage;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
@@ -8,7 +7,7 @@ pub mod tools;
 pub mod ui;
 
 use crate::file_picker;
-use crate::level::layer::LayerId;
+use crate::level::layer::Layer;
 
 use self::tools::{ToolId, ToolSet};
 
@@ -28,7 +27,7 @@ pub struct EditorState {
     pub active_tool: ToolId,
     pub current_loaded_path: Option<PathBuf>,
     pub unsaved_changes: bool,
-    pub current_layer: LayerId,
+    pub current_layer: Layer,
     // TODO Layers
 }
 
@@ -55,7 +54,7 @@ impl Default for EditorState {
             active_tool: 0,
             current_loaded_path: None,
             unsaved_changes: false,
-            current_layer: LayerId::World,
+            current_layer: Layer::World,
         }
     }
 }

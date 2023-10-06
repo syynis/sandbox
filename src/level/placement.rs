@@ -1,10 +1,7 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_ecs_tilemap::prelude::*;
 
-use super::{
-    layer::{FarLayer, Layer, LayerId, NearLayer, WorldLayer},
-    tile::texture_name,
-};
+use super::{layer::Layer, tile::texture_name};
 
 #[derive(Clone, Debug, Default)]
 pub struct TileProperties {
@@ -22,20 +19,11 @@ pub struct TileUpdateEvent {
     pub modification: TileModification,
 }
 
-// TODO This is extremely clunky find a way to fix this
-#[derive(SystemParam)]
-pub struct LayerStorage<'w, 's, T: Component + Layer, O1: Component + Layer> {
-    storage: Query<'w, 's, (Entity, &'static mut TileStorage), (With<T>, Without<O1>)>,
-    // TODO Maybe enforce that each tilemap has the same size and transform
-    transform: Query<'w, 's, (&'static Transform, &'static TilemapSize), (With<T>, Without<O1>)>,
-}
-
 #[derive(SystemParam)]
 pub struct StorageAccess<'w, 's> {
     cmds: Commands<'w, 's>,
-    world: LayerStorage<'w, 's, WorldLayer, NearLayer>,
-    near: LayerStorage<'w, 's, NearLayer, FarLayer>,
-    far: LayerStorage<'w, 's, FarLayer, WorldLayer>,
+    layers: Query<'w, 's, (Entity, &'static mut TileStorage, &'static Layer)>,
+    transforms: Query<'w, 's, (&'static Transform, &'static TilemapSize, &'static Layer)>,
     tile_properties: Query<'w, 's, (&'static TileTextureIndex, &'static TileFlip)>,
     tile_update_event_writer: EventWriter<'w, TileUpdateEvent>,
 }
@@ -45,14 +33,14 @@ impl<'w, 's> StorageAccess<'w, 's> {
         &mut self,
         pos: &TilePos,
         tile_properties: TileProperties,
-        layer: LayerId,
+        layer: Layer,
     ) -> Option<Entity> {
         let tilemap_entity = self.tilemap_entity(layer)?;
 
         let color = match layer {
-            LayerId::World => Color::rgba_u8(255, 255, 255, 191),
-            LayerId::Near => Color::rgba_u8(0, 255, 0, 127),
-            LayerId::Far => Color::rgba_u8(255, 0, 0, 63),
+            Layer::World => Color::rgba_u8(0, 0, 0, 255),
+            Layer::Near => Color::rgba_u8(0, 127, 0, 127),
+            Layer::Far => Color::rgba_u8(127, 0, 0, 63),
         };
         let tile_entity = self
             .cmds
@@ -70,16 +58,15 @@ impl<'w, 's> StorageAccess<'w, 's> {
             .id();
 
         // TODO can't put this in a seperate function because we cant return mutable storage reference
-        let (_, mut storage) = match layer {
-            LayerId::World => self.world.storage.get_single_mut().ok(),
-            LayerId::Near => self.near.storage.get_single_mut().ok(),
-            LayerId::Far => self.far.storage.get_single_mut().ok(),
-        }?;
-        storage.set(pos, tile_entity);
+        for (_, mut storage, l) in self.layers.iter_mut() {
+            if layer == *l {
+                storage.set(pos, tile_entity);
+            }
+        }
         Some(tile_entity)
     }
 
-    pub fn try_place(&mut self, pos: &TilePos, tile_properties: TileProperties, layer: LayerId) {
+    pub fn try_place(&mut self, pos: &TilePos, tile_properties: TileProperties, layer: Layer) {
         let Some(_) = self.get(pos, layer) else {
             return;
         };
@@ -90,7 +77,7 @@ impl<'w, 's> StorageAccess<'w, 's> {
         }
     }
 
-    pub fn replace(&mut self, pos: &TilePos, id: TileProperties, layer: LayerId) {
+    pub fn replace(&mut self, pos: &TilePos, id: TileProperties, layer: Layer) {
         let old = self.get(pos, layer);
         if old.is_some() {
             self.remove(pos, layer);
@@ -102,21 +89,15 @@ impl<'w, 's> StorageAccess<'w, 's> {
         }
     }
 
-    fn despawn(&mut self, pos: &TilePos, layer: LayerId) -> Option<Entity> {
-        // TODO can't put this in a seperate function because we cant return mutable storage reference
-        let (_, mut storage) = match layer {
-            LayerId::World => self.world.storage.get_single_mut().ok(),
-            LayerId::Near => self.near.storage.get_single_mut().ok(),
-            LayerId::Far => self.far.storage.get_single_mut().ok(),
-        }?;
-
+    fn despawn(&mut self, pos: &TilePos, layer: Layer) -> Option<Entity> {
+        let (_, mut storage, _) = self.layers.iter_mut().find(|(_, _, l)| **l == layer)?;
         let entity = storage.get(pos)?;
         storage.remove(pos);
         self.cmds.entity(entity).despawn_recursive();
         Some(entity)
     }
 
-    pub fn remove(&mut self, pos: &TilePos, layer: LayerId) {
+    pub fn remove(&mut self, pos: &TilePos, layer: Layer) {
         if let Some(old) = self.despawn(pos, layer) {
             self.tile_update_event_writer.send(TileUpdateEvent {
                 modification: TileModification::Removed { old },
@@ -124,12 +105,12 @@ impl<'w, 's> StorageAccess<'w, 's> {
         }
     }
 
-    pub fn get(&self, pos: &TilePos, layer: LayerId) -> Option<Entity> {
+    pub fn get(&self, pos: &TilePos, layer: Layer) -> Option<Entity> {
         let storage = self.storage(layer)?;
         storage.get(pos)
     }
 
-    pub fn get_properties(&self, pos: &TilePos, layer: LayerId) -> Option<TileProperties> {
+    pub fn get_properties(&self, pos: &TilePos, layer: Layer) -> Option<TileProperties> {
         let entity = self.get(pos, layer)?;
         let (id, flip) = self.tile_properties.get(entity).ok()?;
         Some(TileProperties {
@@ -138,45 +119,30 @@ impl<'w, 's> StorageAccess<'w, 's> {
         })
     }
 
-    pub fn transform_size(&self, layer: LayerId) -> Option<(&Transform, &TilemapSize)> {
-        let transform = match layer {
-            LayerId::World => self.world.transform.get_single().ok(),
-            LayerId::Near => self.near.transform.get_single().ok(),
-            LayerId::Far => self.far.transform.get_single().ok(),
-        }?;
-        Some(transform)
+    pub fn transform_size(&self, layer: Layer) -> Option<(&Transform, &TilemapSize)> {
+        let res = self.transforms.iter().find(|(_, _, l)| **l == layer)?;
+        Some((res.0, res.1))
     }
 
-    pub fn storage(&self, layer: LayerId) -> Option<&TileStorage> {
-        let (_, storage) = match layer {
-            LayerId::World => self.world.storage.get_single().ok(),
-            LayerId::Near => self.near.storage.get_single().ok(),
-            LayerId::Far => self.far.storage.get_single().ok(),
-        }?;
+    pub fn storage(&self, layer: Layer) -> Option<&TileStorage> {
+        let (_, storage, _) = self.layers.iter().find(|(_, _, l)| **l == layer)?;
         Some(storage)
     }
 
-    pub fn tilemap_entity(&self, layer: LayerId) -> Option<Entity> {
-        let (entity, _) = match layer {
-            LayerId::World => self.world.storage.get_single().ok(),
-            LayerId::Near => self.near.storage.get_single().ok(),
-            LayerId::Far => self.far.storage.get_single().ok(),
-        }?;
+    pub fn tilemap_entity(&self, layer: Layer) -> Option<Entity> {
+        let (entity, _, _) = self.layers.iter().find(|(_, _, l)| **l == layer)?;
         Some(entity)
     }
 
-    pub fn clear(&mut self, layer: LayerId) {
+    pub fn clear(&mut self, layer: Layer) {
         // TODO can't put this in a seperate function because we cant return mutable storage reference
         let Some((_, size)) = self.transform_size(layer) else {
             return;
         };
         let size = size.clone();
 
-        let Ok((_, mut storage)) = (match layer {
-            LayerId::World => self.world.storage.get_single_mut(),
-            LayerId::Near => self.near.storage.get_single_mut(),
-            LayerId::Far => self.far.storage.get_single_mut(),
-        }) else {
+        let Some((_, mut storage, _)) = self.layers.iter_mut().find(|(_, _, l)| **l == layer)
+        else {
             return;
         };
         let mut pos_to_remove = Vec::new();
