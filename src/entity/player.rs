@@ -51,7 +51,7 @@ impl<B: Bundle> Command for SpawnPlayerCommand<B> {
             .with_max_time_of_impact(0.2)
             .with_max_hits(1),
             Control::default(),
-            Friction::new(0.),
+            Friction::new(0.5),
             LookDir::Right,
             PlatformPass,
             GravityScale(1.),

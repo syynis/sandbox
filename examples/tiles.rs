@@ -27,16 +27,19 @@ use sandbox::editor::ToolActions;
 use sandbox::entity::holdable::CanHold;
 use sandbox::entity::holdable::Holdable;
 use sandbox::entity::holdable::IsHeld;
+use sandbox::entity::pebble::SpawnPebble;
 use sandbox::entity::player::DespawnPlayerCommand;
 use sandbox::entity::player::Player;
 use sandbox::entity::player::SpawnPlayerCommand;
 use sandbox::file_picker;
 use sandbox::input::InputPlugin;
-use sandbox::level::layer::LayerId;
-use sandbox::level::layer::WorldLayer;
+use sandbox::level::layer::Layer;
 use sandbox::level::layer::ALL_LAYERS;
 use sandbox::level::placement::StorageAccess;
+use sandbox::level::placement::TileProperties;
 use sandbox::level::serialization::LevelSerializer;
+use sandbox::level::tile::InsertTileColliderCommand;
+use sandbox::level::tile::TileKind;
 use sandbox::level::tpos_wpos;
 use sandbox::level::LevelPlugin;
 use sandbox::level::SpawnMapCommand;
@@ -68,7 +71,7 @@ fn main() {
     ));
     app.insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(EditorState::default())
-        .insert_resource(Gravity(Vector::NEG_Y * 160.0))
+        .insert_resource(Gravity(Vector::NEG_Y * 320.0))
         .insert_resource(SubstepCount(3));
 
     app.register_type::<EditorState>();
@@ -94,8 +97,6 @@ fn main() {
             respawn_player,
             draw_look_dir,
             spawn_rock,
-            hold,
-            throw,
         ),
     );
 
@@ -120,100 +121,10 @@ fn spawn_rock(mut cmds: Commands, keys: Res<Input<KeyCode>>, tile_cursor: Res<Ti
     };
     let pos = tpos_wpos(&tile_cursor);
     if keys.just_pressed(KeyCode::G) {
-        cmds.spawn((
-            Position(pos),
-            RigidBody::Dynamic,
-            Collider::ball(4.),
-            Holdable,
-            SpriteBundle {
-                sprite: Sprite {
-                    color: Color::rgb(0.7, 0.7, 0.8),
-                    custom_size: Some(Vec2::splat(8.0)),
-                    ..default()
-                },
-                ..default()
-            },
-        ));
-    }
-}
-
-fn hold(
-    mut cmds: Commands,
-    keys: Res<Input<KeyCode>>,
-    holdables: Query<Entity, With<Holdable>>,
-    held: Query<&IsHeld>,
-    holder: Query<(Entity, Option<&Children>, &CollidingEntities), With<CanHold>>,
-) {
-    let Ok((holder, children, colliding)) = holder.get_single() else {
-        return;
-    };
-
-    if let Some(children) = children {
-        if children.iter().any(|child| held.get(*child).is_ok()) {
-            return;
-        }
-    }
-
-    if keys.just_pressed(KeyCode::H) {
-        // Find first colliding enitty that is also a holdable
-        if let Some(holdable) = colliding.0.iter().find(|e| holdables.get(**e).is_ok()) {
-            // Despawn entity to get rid of all the physics related components
-            // TODO when bevy_xpbd supports child colliders think about simply moving the entity to the children list
-            // This would hopefully also naturally add velocity inheritance on throwing
-            cmds.entity(*holdable).despawn();
-            cmds.entity(holder).with_children(|childbuilder| {
-                childbuilder.spawn((
-                    IsHeld,
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::rgb(0.7, 0.7, 0.8),
-                            custom_size: Some(Vec2::splat(8.0)),
-                            ..default()
-                        },
-                        ..default()
-                    },
-                ));
-            });
-        }
-    }
-}
-
-fn throw(
-    mut cmds: Commands,
-    keys: Res<Input<KeyCode>>,
-    holder: Query<(Entity, &Children, &Transform, &LookDir), With<CanHold>>,
-    held: Query<(With<IsHeld>, With<Parent>)>,
-) {
-    let Ok((holder, children, transform, look_dir)) = holder.get_single() else {
-        return;
-    };
-
-    // Can't throw anything
-    let Some(throwable) = children.iter().find(|child| held.get(**child).is_ok()) else {
-        return;
-    };
-
-    if keys.just_pressed(KeyCode::X) {
-        // Remove child throwable entity
-        cmds.entity(holder).remove_children(&[*throwable]);
-        cmds.entity(*throwable).despawn();
-
-        // Spawn new physics entity
-        cmds.spawn((
-            LinearVelocity(look_dir.as_vec() * 256. + Vector::Y * 64.),
-            Position(transform.translation.truncate() + look_dir.as_vec() * 16.),
-            RigidBody::Dynamic,
-            Collider::ball(4.),
-            Holdable,
-            SpriteBundle {
-                sprite: Sprite {
-                    color: Color::rgb(0.7, 0.7, 0.8),
-                    custom_size: Some(Vec2::splat(8.0)),
-                    ..default()
-                },
-                ..default()
-            },
-        ));
+        cmds.add(SpawnPebble {
+            pos,
+            vel: Vec2::ZERO,
+        })
     }
 }
 
@@ -465,7 +376,7 @@ fn handle_close(
 fn handle_new(
     mut cmds: Commands,
     mut editor_events: EventReader<EditorEvent>,
-    map: Query<Entity, (With<TileStorage>, With<WorldLayer>)>,
+    map: Query<Entity, (With<TileStorage>, With<Layer>)>,
     mut storage: StorageAccess,
     mut editor_state: ResMut<EditorState>,
 ) {
@@ -529,11 +440,8 @@ pub fn draw_ui(world: &mut World) {
     });
 }
 
-fn render_tilemap_outline(
-    mut lines: ResMut<DebugLines>,
-    tilemap_q: Query<(&TilemapSize, &Transform), With<WorldLayer>>,
-) {
-    let Ok((size, transform)) = tilemap_q.get_single() else {
+fn render_tilemap_outline(mut lines: ResMut<DebugLines>, storage: StorageAccess) {
+    let Some((transform, size)) = storage.transform_size(Layer::World) else {
         return;
     };
     let size = Vec2::from(size);
@@ -552,7 +460,7 @@ fn spawn_collisions(
 ) {
     if keys.just_pressed(KeyCode::Q) {
         tiles
-            .storage(LayerId::World)
+            .storage(Layer::World)
             .unwrap()
             .iter()
             .for_each(|tile_entity| {
@@ -564,68 +472,20 @@ fn spawn_collisions(
                     return;
                 };
 
-                let make_right_triangle = |corner, size, dir: Vector| -> Collider {
-                    Collider::triangle(
-                        corner + Vector::X * size * dir.x,
-                        corner + Vector::Y * size * dir.y,
-                        corner,
-                    )
-                };
-
                 let center = tpos_wpos(pos);
 
-                let dir = match (flip.x, flip.y) {
-                    (false, false) => Vector::new(1., 1.),
-                    (true, false) => Vector::new(-1., 1.),
-                    (false, true) => Vector::new(1., -1.),
-                    (true, true) => Vector::new(-1., -1.),
+                let properties = TileProperties {
+                    id: *id,
+                    flip: *flip,
                 };
-                let cross = Collider::compound(vec![
-                    (
-                        Position::default(),
-                        Rotation::default(),
-                        Collider::cuboid(4., 16.),
-                    ),
-                    (
-                        Position::default(),
-                        Rotation::default(),
-                        Collider::cuboid(16., 4.),
-                    ),
-                ]);
-                let collider = match id.0 {
-                    0 => Collider::cuboid(16., 16.),
-                    1 => make_right_triangle(Vector::new(-8., -8.) * dir, 16., dir),
-                    2 => Collider::cuboid(4., 16.),
-                    3 => Collider::cuboid(16., 4.),
-                    4 => cross,
-                    5 => Collider::cuboid(16., 4.),
-                    _ => unreachable!(),
-                };
+                let kind = TileKind::from(properties.id);
 
-                cmds.entity(*tile_entity).insert((
-                    RigidBody::Static,
-                    collider,
-                    Position::from(center),
-                ));
-                if id.0 == 5 {
-                    cmds.entity(*tile_entity)
-                        .insert((Platform::default(), Position::from(center + Vector::Y * 5.)));
-                }
-
-                if id.0 == 2 || id.0 == 3 || id.0 == 4 {
-                    let pole_type = if id.0 == 2 {
-                        PoleType::Vertical
-                    } else if id.0 == 3 {
-                        PoleType::Horizontal
-                    } else {
-                        PoleType::Combined
-                    };
-                    cmds.entity(*tile_entity).insert((Sensor, Pole(pole_type)));
-                }
-
-                if id.0 == 0 || id.0 == 1 || id.0 == 5 {
-                    cmds.entity(*tile_entity).insert(Terrain);
-                }
+                cmds.add(InsertTileColliderCommand {
+                    tile_entity: *tile_entity,
+                    pos: center,
+                    properties,
+                    kind,
+                });
             });
     }
 }
