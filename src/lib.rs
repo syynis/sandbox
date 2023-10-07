@@ -5,6 +5,7 @@ pub mod file_picker;
 pub mod grid;
 pub mod input;
 pub mod level;
+pub mod lifetime;
 pub mod nono;
 pub mod phys;
 pub mod ui;

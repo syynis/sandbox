@@ -78,6 +78,10 @@ pub fn throw(
         // Spawn new physics entity
         let pos = transform.translation.truncate() + look_dir.as_vec() * 16.; // Dont hardcode player size
         let vel = look_dir.as_vec() * 512. + Vector::Y * 128.;
-        cmds.add(SpawnPebble { pos, vel });
+        cmds.add(SpawnPebble {
+            pos,
+            vel,
+            lifetime: None,
+        });
     }
 }
