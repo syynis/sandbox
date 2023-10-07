@@ -1,9 +1,9 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_ecs_tilemap::prelude::*;
 
-use super::{layer::Layer, tile::texture_name};
+use super::{layer::Layer, tile::TileKind};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct TileProperties {
     pub id: TileTextureIndex,
     pub flip: TileFlip,
@@ -45,7 +45,7 @@ impl<'w, 's> StorageAccess<'w, 's> {
         let tile_entity = self
             .cmds
             .spawn((
-                Name::new(texture_name(tile_properties.id)),
+                Name::new(TileKind::from(tile_properties.id).name()),
                 TileBundle {
                     position: *pos,
                     tilemap_id: TilemapId(tilemap_entity),
