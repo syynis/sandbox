@@ -5,10 +5,7 @@ use bevy::{
 use bevy_ecs_tilemap::prelude::*;
 use leafwing_input_manager::prelude::*;
 
-use crate::{
-    editor::{EditorActions, ToolActions},
-    level::placement::TileProperties,
-};
+use crate::{editor::EditorActions, level::placement::TileProperties};
 
 use super::{
     util::{draw_tile_outline, CommonToolParams},
@@ -18,7 +15,6 @@ use super::{
 #[derive(SystemParam)]
 struct PoleToolParams<'w, 's> {
     pub common: CommonToolParams<'w, 's>,
-    pub tool_actions: Query<'w, 's, &'static ActionState<ToolActions>>,
 }
 
 pub struct PoleTool<'w: 'static, 's: 'static> {
@@ -43,7 +39,6 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
                     mut editor_state,
                     editor_actions,
                 },
-            tool_actions,
         } = self.system_state.get_mut(world);
 
         let Some(cursor_tile_pos) = **tile_cursor else {
@@ -52,17 +47,13 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
 
         draw_tile_outline(tile_cursor, lines);
 
-        let Ok(tool_actions) = tool_actions.get_single() else {
-            return;
-        };
-
-        if tool_actions.just_pressed(ToolActions::CycleMode) {
-            self.place_horizontal = !self.place_horizontal;
-        }
-
         let Ok(editor_actions) = editor_actions.get_single() else {
             return;
         };
+
+        if editor_actions.just_pressed(EditorActions::CycleToolMode) {
+            self.place_horizontal = !self.place_horizontal;
+        }
 
         if editor_actions.pressed(EditorActions::ApplyTool) {
             let id: i32 = if self.place_horizontal { 3 } else { 2 };

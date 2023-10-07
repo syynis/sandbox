@@ -6,7 +6,7 @@ use bevy_ecs_tilemap::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 
 use crate::{
-    editor::{EditorActions, ToolActions},
+    editor::EditorActions,
     level::{layer::ALL_LAYERS, placement::TileProperties, tpos_wpos},
     util::box_lines,
 };
@@ -16,14 +16,15 @@ use super::{
     Tool,
 };
 
-#[derive(SystemParam)]
-struct AreaToolParams<'w, 's> {
-    pub common: CommonToolParams<'w, 's>,
-    pub tool_actions: Query<'w, 's, &'static ActionState<ToolActions>>,
-}
+pub const ALL_MODES: [Mode; 4] = [
+    Mode::PlaceLayer,
+    Mode::DeleteLayer,
+    Mode::PlaceAllLayers,
+    Mode::DeleteAllLayers,
+];
 
 #[derive(Default, PartialEq, Copy, Clone)]
-enum Mode {
+pub enum Mode {
     #[default]
     PlaceLayer,
     DeleteLayer,
@@ -31,8 +32,11 @@ enum Mode {
     DeleteAllLayers,
 }
 
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct ActiveMode(pub Mode);
+
 impl Mode {
-    fn next(&mut self) -> Self {
+    pub fn next(&self) -> Self {
         use Mode::*;
         match self {
             PlaceLayer => DeleteLayer,
@@ -41,13 +45,29 @@ impl Mode {
             DeleteAllLayers => PlaceLayer,
         }
     }
+
+    pub fn name(&self) -> &str {
+        use Mode::*;
+        match self {
+            PlaceLayer => "Place",
+            DeleteLayer => "Delete",
+            PlaceAllLayers => "Place All",
+            DeleteAllLayers => "Delete All",
+        }
+    }
 }
+
+#[derive(SystemParam)]
+struct AreaToolParams<'w, 's> {
+    pub common: CommonToolParams<'w, 's>,
+    pub current_mode: ResMut<'w, ActiveMode>,
+}
+
 pub struct AreaTool<'w: 'static, 's: 'static> {
     system_state: SystemState<AreaToolParams<'w, 's>>,
     start: Option<TilePos>,
     temp_end: Option<TilePos>,
     end: Option<TilePos>,
-    mode: Mode,
 }
 
 impl<'w, 's> Tool for AreaTool<'w, 's> {
@@ -57,7 +77,6 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
             start: None,
             temp_end: None,
             end: None,
-            mode: Mode::PlaceLayer,
         }
     }
 
@@ -71,21 +90,13 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
                     mut lines,
                     editor_actions,
                 },
-            tool_actions,
+            mut current_mode,
         } = self.system_state.get_mut(world);
 
         let cursor_tile_pos = tile_cursor.or_else(|| self.temp_end);
         let Some(cursor_tile_pos) = cursor_tile_pos else {
             return;
         };
-
-        let Ok(tool_actions) = tool_actions.get_single() else {
-            return;
-        };
-
-        if tool_actions.just_pressed(ToolActions::CycleMode) {
-            self.mode = self.mode.next();
-        }
 
         if let (Some(start), Some(end)) = (self.start, self.temp_end) {
             let start = UVec2::from(start);
@@ -108,6 +119,10 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
             return;
         };
 
+        if editor_actions.just_pressed(EditorActions::CycleToolMode) {
+            current_mode.0 = current_mode.next();
+        }
+
         if editor_actions.just_pressed(EditorActions::ApplyTool) {
             self.start = Some(cursor_tile_pos);
         }
@@ -129,7 +144,7 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
             (min.x..=max.x).for_each(|x| {
                 (min.y..=max.y).for_each(|y| {
                     let pos = TilePos { x, y };
-                    match self.mode {
+                    match **current_mode {
                         Mode::PlaceLayer => {
                             tiles.replace(
                                 &pos,

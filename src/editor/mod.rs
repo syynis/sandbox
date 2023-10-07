@@ -9,13 +9,14 @@ pub mod ui;
 use crate::file_picker;
 use crate::level::layer::Layer;
 
-use self::tools::{ToolId, ToolSet};
+use self::tools::{area::ActiveMode, ToolId, ToolSet};
 
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EditorState>();
+        app.init_resource::<ActiveMode>();
     }
 }
 
@@ -83,15 +84,11 @@ pub enum EditorActions {
     Close,
     CycleTool,
     CycleLayer,
+    CycleToolMode,
     Load,
     New,
     Save,
     SaveAs,
-}
-
-#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
-pub enum ToolActions {
-    CycleMode,
 }
 
 #[derive(Debug, Clone, Event)]

@@ -2,7 +2,10 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::{
-    editor::EditorState,
+    editor::{
+        tools::area::{ActiveMode, ALL_MODES},
+        EditorState,
+    },
     level::layer::ALL_LAYERS,
     ui::{
         widget::{basic_widget, fn_widget, BasicWidget},
@@ -25,7 +28,9 @@ impl BasicWidget for EditorToolBar {
                 basic_widget::<ToolPicker>(world, ui, id.with("tool_picker"));
             });
         ui.separator();
-        basic_widget::<LayersPanel>(world, ui, id);
+        basic_widget::<LayersPanel>(world, ui, id.with("layers"));
+        ui.separator();
+        basic_widget::<AreaToolPanel>(world, ui, id.with("area_tool"));
     }
 }
 
@@ -72,11 +77,10 @@ impl BasicWidget for LayersPanel {
     fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, id: egui::Id) {
         fn_widget::<PanelTitle>(world, ui, id.with("title"), "Layers");
         egui::ScrollArea::vertical()
-            .max_height(ui.available_height() - 25.0)
-            .auto_shrink([false, false])
+            .id_source("layers_scroll")
+            .auto_shrink([false, true])
             .show(ui, |ui| {
                 basic_widget::<LayersList>(world, ui, id.with("layer_list"));
-                ui.allocate_space(ui.available_size());
             });
     }
 }
@@ -106,5 +110,40 @@ impl BasicWidget for LayersList {
             let mut state = world.resource_mut::<EditorState>();
             state.current_layer = current_layer;
         }
+    }
+}
+
+#[derive(Default)]
+pub struct AreaToolPanel;
+
+impl BasicWidget for AreaToolPanel {
+    fn new(_: &mut World, _: &egui::Ui) -> Self {
+        Self::default()
+    }
+
+    fn draw(&mut self, world: &mut World, ui: &mut egui::Ui, id: egui::Id) {
+        fn_widget::<PanelTitle>(world, ui, id.with("title"), "Area Tool Mode");
+        egui::ScrollArea::vertical()
+            .id_source("area_tool")
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                let mode = world.resource::<ActiveMode>();
+                let mut current_mode = **mode;
+                let mut changed = false;
+                let layout = egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true);
+                ui.with_layout(layout, |ui| {
+                    for mode in ALL_MODES.iter() {
+                        changed |= ui
+                            .selectable_value(&mut current_mode, *mode, mode.name())
+                            .changed();
+                    }
+                });
+
+                if changed {
+                    let mut mode = world.resource_mut::<ActiveMode>();
+                    mode.0 = mode.next();
+                }
+                ui.allocate_space(ui.available_size());
+            });
     }
 }

@@ -21,12 +21,9 @@ use sandbox::editor::ui::menu::EditorMenuBar;
 use sandbox::editor::ui::toolbar::EditorToolBar;
 use sandbox::editor::EditorActions;
 use sandbox::editor::EditorEvent;
+use sandbox::editor::EditorPlugin;
 use sandbox::editor::EditorState;
 use sandbox::editor::PickerEvent;
-use sandbox::editor::ToolActions;
-use sandbox::entity::holdable::CanHold;
-use sandbox::entity::holdable::Holdable;
-use sandbox::entity::holdable::IsHeld;
 use sandbox::entity::pebble::SpawnPebble;
 use sandbox::entity::player::DespawnPlayerCommand;
 use sandbox::entity::player::Player;
@@ -44,11 +41,8 @@ use sandbox::level::tpos_wpos;
 use sandbox::level::LevelPlugin;
 use sandbox::level::SpawnMapCommand;
 use sandbox::level::TileCursor;
+use sandbox::lifetime::LifetimePlugin;
 use sandbox::phys::movement::LookDir;
-use sandbox::phys::terrain::Platform;
-use sandbox::phys::terrain::Pole;
-use sandbox::phys::terrain::PoleType;
-use sandbox::phys::terrain::Terrain;
 use sandbox::phys::PhysPlugin;
 use sandbox::ui;
 use sandbox::ui::draw_confirmation_dialog;
@@ -64,13 +58,13 @@ fn main() {
         DebugLinesPlugin::default(),
         WorldInspectorPlugin::default().run_if(enable_inspector),
         InputManagerPlugin::<EditorActions>::default(),
-        InputManagerPlugin::<ToolActions>::default(),
         LevelPlugin,
         file_picker::Plugin::<PickerEvent>::default(),
         PhysPlugin,
+        LifetimePlugin,
+        EditorPlugin,
     ));
     app.insert_resource(ClearColor(Color::DARK_GRAY))
-        .insert_resource(EditorState::default())
         .insert_resource(Gravity(Vector::NEG_Y * 320.0))
         .insert_resource(SubstepCount(3));
 
@@ -124,6 +118,7 @@ fn spawn_rock(mut cmds: Commands, keys: Res<Input<KeyCode>>, tile_cursor: Res<Ti
         cmds.add(SpawnPebble {
             pos,
             vel: Vec2::ZERO,
+            lifetime: Some(3.0),
         })
     }
 }
@@ -168,6 +163,7 @@ fn editor_actions_map() -> InputMap<EditorActions> {
     input_map.insert(MouseButton::Right, ApplyTool);
     input_map.insert(KeyCode::C, CycleTool);
     input_map.insert(KeyCode::L, Load);
+    input_map.insert(KeyCode::T, CycleToolMode);
 
     input_map.insert_modified(Modifier::Control, MouseButton::Left, EditorActions::Area);
     input_map.insert_modified(Modifier::Shift, KeyCode::C, EditorActions::CycleLayer);
@@ -179,16 +175,6 @@ fn editor_actions_map() -> InputMap<EditorActions> {
         [KeyCode::ControlLeft, KeyCode::ShiftLeft, KeyCode::S],
         EditorActions::SaveAs,
     );
-
-    input_map
-}
-
-fn tool_actions_map() -> InputMap<ToolActions> {
-    use ToolActions::*;
-
-    let mut input_map = InputMap::default();
-
-    input_map.insert(KeyCode::T, CycleMode);
 
     input_map
 }
@@ -209,13 +195,6 @@ fn setup(mut cmds: Commands) {
             ..default()
         },),
         Name::new("EditorActions"),
-    ));
-    cmds.spawn((
-        (InputManagerBundle::<ToolActions> {
-            input_map: tool_actions_map(),
-            ..default()
-        },),
-        Name::new("ToolActions"),
     ));
     cmds.add(SpawnMapCommand::new(32, 16));
 }
