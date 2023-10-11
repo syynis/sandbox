@@ -197,3 +197,21 @@ pub struct Palette {
 
 #[derive(Resource)]
 pub struct PaletteHandle(Handle<Image>);
+
+pub enum TileColorKind {
+    Up = 0,
+    Neutral = 1,
+    Down = 2,
+    None = 3,
+}
+
+pub struct TileLayer {
+    // 20x20 image
+    colors: [TileColorKind; 400],
+}
+
+pub struct Tile {
+    size: UVec2,
+    layers: Vec<TileLayer>,
+    layer_repeats: Vec<usize>,
+}
