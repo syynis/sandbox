@@ -1,6 +1,14 @@
-use bevy::{ecs::system::Command, prelude::*};
+use std::{fs, path::PathBuf};
+
+use bevy::{
+    ecs::system::Command,
+    prelude::*,
+    reflect::{TypePath, TypeUuid},
+};
+use bevy_common_assets::ron::RonAssetPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
+use serde::{Deserialize, Serialize};
 
 fn main() {
     let mut app = App::new();
@@ -9,14 +17,19 @@ fn main() {
         DefaultPlugins.set(ImagePlugin::default_nearest()),
         PanCamPlugin::default(),
         WorldInspectorPlugin::default(),
+        RonAssetPlugin::<TileManifest>::new(&["manifest.ron"]),
     ));
 
     app.insert_resource(ClearColor(Color::DARK_GRAY));
     app.register_type::<Palette>();
     app.register_type::<PaletteRows>();
 
+    app.insert_resource(Manifests::default());
+
     app.add_systems(Startup, setup);
     app.add_systems(Update, (load_palette, apply_deferred, spawn_map).chain());
+    app.add_systems(Update, test);
+    app.add_systems(Update, test2);
     app.run()
 }
 
@@ -198,20 +211,68 @@ pub struct Palette {
 #[derive(Resource)]
 pub struct PaletteHandle(Handle<Image>);
 
+#[derive(Default)]
 pub enum TileColorKind {
+    #[default]
     Up = 0,
     Neutral = 1,
     Down = 2,
     None = 3,
 }
 
+#[derive(Default)]
 pub struct TileLayer {
     // 20x20 image
-    colors: [TileColorKind; 400],
+    colors: Vec<TileColorKind>,
 }
 
 pub struct Tile {
-    size: UVec2,
     layers: Vec<TileLayer>,
-    layer_repeats: Vec<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TileMeta {
+    pub name: String,
+    pub size: UVec2,
+    pub layer_repeats: Vec<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, TypeUuid, TypePath)]
+#[uuid = "39cadc56-aa9c-4543-8640-a018b74b5052"]
+pub struct TileManifest {
+    pub name: String,
+    pub tiles: Vec<TileMeta>,
+}
+
+#[derive(Default, Resource)]
+pub struct Manifests(pub Vec<Handle<TileManifest>>);
+
+fn test(
+    keys: Res<Input<KeyCode>>,
+    asset_server: Res<AssetServer>,
+    mut manifests: ResMut<Manifests>,
+) {
+    if keys.just_pressed(KeyCode::S) {
+        let stone_manifest: Handle<TileManifest> = asset_server.load("tiles/stones.manifest.ron");
+        manifests.0.push(stone_manifest);
+    }
+}
+
+fn test2(
+    keys: Res<Input<KeyCode>>,
+    manifests: Res<Assets<TileManifest>>,
+    manifest_handles: Res<Manifests>,
+) {
+    if keys.just_pressed(KeyCode::T) {
+        for manifest_handle in manifest_handles.0.iter() {
+            let Some(manifest) = manifests.get(manifest_handle) else {
+                return;
+            };
+
+            println!(
+                "{}",
+                ron::ser::to_string_pretty(&manifest, ron::ser::PrettyConfig::default()).unwrap()
+            );
+        }
+    }
 }

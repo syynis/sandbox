@@ -1,0 +1,27 @@
+(
+    name: "stone",
+    tiles: [
+        (
+            name: "small_stone",
+            size: (1, 1),
+            layer_repeats: [
+                10,
+            ],
+        ),
+
+        (
+            name: "medium_stone",
+            size: (2, 2),
+            layer_repeats: [
+                10,
+            ],
+        ),
+        (
+            name: "brick",
+            size: (1, 1),
+            layer_repeats: [
+                1, 1, 8,
+            ],
+        ),
+    ],
+)
