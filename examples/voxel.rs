@@ -4,6 +4,8 @@ use bevy::{
     ecs::system::Command,
     prelude::*,
     reflect::{TypePath, TypeUuid},
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    utils::hashbrown::HashMap,
 };
 use bevy_common_assets::ron::RonAssetPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -26,10 +28,9 @@ fn main() {
 
     app.insert_resource(Manifests::default());
 
-    app.add_systems(Startup, setup);
+    app.add_systems(Startup, (setup, load_manifests));
     app.add_systems(Update, (load_palette, apply_deferred, spawn_map).chain());
-    app.add_systems(Update, test);
-    app.add_systems(Update, test2);
+    app.add_systems(Update, load_tiles);
     app.run()
 }
 
@@ -49,8 +50,6 @@ impl Command for SpawnVoxelCommand {
         let pos = self.pos + ((offset * 9.).extend(-10.) * l);
 
         world.resource_scope(|world, palette: Mut<Palette>| {
-            let get_color = |idx: usize| -> Color { palette.sun.colors[1][10 * self.layer + idx] };
-
             let sprite = |color: Color| -> Sprite {
                 Sprite {
                     color,
@@ -61,14 +60,14 @@ impl Command for SpawnVoxelCommand {
 
             world
                 .spawn(SpriteBundle {
-                    sprite: sprite(get_color(0)),
+                    sprite: sprite(palette.get_sun_color(1, 0, self.layer)),
                     transform: Transform::from_translation(pos),
                     ..default()
                 })
                 .with_children(|builder| {
                     for i in 1..10 {
                         builder.spawn(SpriteBundle {
-                            sprite: sprite(get_color(i)),
+                            sprite: sprite(palette.get_sun_color(1, i, self.layer)),
                             transform: Transform::from_translation(
                                 (offset * ((1 - 2 * self.flip as i32) as f32)).extend(-1.)
                                     * i as f32,
@@ -94,52 +93,107 @@ fn setup(mut cmds: Commands, asset_server: Res<AssetServer>) {
     cmds.insert_resource(PaletteHandle(palette_asset));
 }
 
-fn spawn_map(mut cmds: Commands, palette: Res<Palette>, mut once: Local<bool>) {
-    if *once {
-        return;
-    }
-    *once = true;
-    let map = [
-        [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 1, 1, 1, 1, 1, 0],
-            [1, 0, 0, 0, 0, 0, 1, 1],
-            [1, 0, 0, 0, 0, 0, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 0],
-        ],
-        [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 1, 1, 1, 0, 0, 0],
-            [0, 0, 1, 0, 0, 0, 0, 0],
-            [1, 0, 1, 0, 0, 0, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 0],
-        ],
-        [
-            [0, 1, 1, 1, 1, 1, 0, 0],
-            [0, 1, 1, 1, 1, 1, 0, 0],
-            [0, 0, 0, 0, 1, 1, 0, 0],
-            [0, 0, 0, 1, 1, 1, 0, 0],
-            [0, 0, 1, 1, 1, 1, 1, 0],
-        ],
-    ];
+#[derive(Resource)]
+pub struct MapImage(pub Handle<Image>);
+fn spawn_map(
+    mut cmds: Commands,
+    keys: Res<Input<KeyCode>>,
+    palette: Res<Palette>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if keys.just_pressed(KeyCode::W) {
+        let map = [
+            [
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 0],
+                [1, 0, 0, 0, 0, 0, 1, 1],
+                [1, 0, 0, 0, 0, 0, 1, 1],
+                [1, 1, 1, 0, 0, 1, 1, 0],
+            ],
+            [
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 1, 1, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0, 0],
+                [1, 0, 1, 0, 0, 0, 1, 1],
+                [1, 1, 1, 0, 0, 1, 1, 0],
+            ],
+            [
+                [0, 1, 1, 1, 1, 1, 0, 0],
+                [0, 1, 1, 1, 1, 1, 0, 0],
+                [0, 0, 0, 0, 1, 1, 0, 0],
+                [0, 0, 0, 1, 1, 1, 0, 0],
+                [0, 0, 1, 1, 1, 1, 1, 0],
+            ],
+        ];
 
-    cmds.insert_resource(ClearColor(palette.meta.skycolor));
-
-    for (l, layer) in map.iter().enumerate() {
-        for (y, row) in layer.iter().rev().enumerate() {
-            for (x, tile) in row.iter().enumerate() {
-                if *tile == 1 {
-                    let x = x as f32;
-                    let y = y as f32;
-                    let pos = Vec3::new(20. * x, 20. * y, 0.);
-                    cmds.add(SpawnVoxelCommand {
-                        pos,
-                        layer: l,
-                        flip: false,
-                    });
+        //cmds.insert_resource(ClearColor(palette.meta.skycolor));
+        /*
+        for (l, layer) in map.iter().enumerate() {
+            for (y, row) in layer.iter().rev().enumerate() {
+                for (x, tile) in row.iter().enumerate() {
+                    if *tile == 1 {
+                        let x = x as f32;
+                        let y = y as f32;
+                        let pos = Vec3::new(20. * x, 20. * y, 0.);
+                        cmds.add(SpawnVoxelCommand {
+                            pos,
+                            layer: l,
+                            flip: false,
+                        });
+                    }
                 }
             }
         }
+        */
+
+        #[rustfmt::skip]
+        let map = [
+            [1, 0, 0, 0, 1], 
+            [0, 0, 1, 0, 0], 
+            [0, 1, 0, 1, 0], 
+            [0, 0, 1, 0, 0], 
+            [1, 0, 0, 0, 1], 
+        ];
+        let voxel_size = 20;
+        let map_width = map[0].len();
+        let map_height = map.len();
+        let width = map_width * voxel_size;
+        let height = map_height * voxel_size;
+        let texture_format_size = 4; // Rgba8Uint -> 4 channels each a u8
+        let size = Extent3d {
+            width: width as u32,
+            height: height as u32,
+            ..default()
+        };
+        let dimension = TextureDimension::D2;
+        let mut data: Vec<u8> = vec![255; (texture_format_size * width * height) as usize];
+        for (y, row) in map.iter().enumerate() {
+            for (x, tile) in row.iter().enumerate() {
+                if *tile == 1 {
+                    let x_part = x * (texture_format_size * voxel_size) as usize;
+                    let y_part = y * width * texture_format_size as usize * voxel_size;
+                    let start = x_part + y_part;
+                    data[start + 3] = 0;
+                    for vy in 0..voxel_size {
+                        for vx in 0..voxel_size {
+                            let pos = start
+                                + vx as usize * texture_format_size as usize
+                                + vy as usize * voxel_size * map_width as usize * texture_format_size as usize;
+                            data[pos] = 0;
+                            data[pos + 1] = 0;
+                            data[pos + 2] = 0;
+                        }
+                    }
+                }
+            }
+        }
+        let image = Image::new(size, dimension, data, TextureFormat::Rgba8Unorm);
+        let handle = images.add(image);
+        cmds.spawn(SpriteBundle {
+            texture: handle.clone(),
+            ..default()
+        });
+        cmds.insert_resource(MapImage(handle));
     }
 }
 
@@ -208,6 +262,24 @@ pub struct Palette {
     shade: PaletteRows,
 }
 
+impl Palette {
+    pub fn get_color(&self, shade: bool, dir: usize, idx: usize, layer: usize) -> Color {
+        if shade {
+            self.shade.colors[dir][10 * layer + idx]
+        } else {
+            self.sun.colors[dir][10 * layer + idx]
+        }
+    }
+
+    pub fn get_sun_color(&self, dir: usize, idx: usize, layer: usize) -> Color {
+        self.get_color(false, dir, idx, layer)
+    }
+
+    pub fn get_shade_color(&self, dir: usize, idx: usize, layer: usize) -> Color {
+        self.get_color(true, dir, idx, layer)
+    }
+}
+
 #[derive(Resource)]
 pub struct PaletteHandle(Handle<Image>);
 
@@ -247,32 +319,34 @@ pub struct TileManifest {
 #[derive(Default, Resource)]
 pub struct Manifests(pub Vec<Handle<TileManifest>>);
 
-fn test(
-    keys: Res<Input<KeyCode>>,
-    asset_server: Res<AssetServer>,
-    mut manifests: ResMut<Manifests>,
-) {
-    if keys.just_pressed(KeyCode::S) {
-        let stone_manifest: Handle<TileManifest> = asset_server.load("tiles/stones.manifest.ron");
-        manifests.0.push(stone_manifest);
-    }
+#[derive(Default, Resource)]
+pub struct Tiles(pub HashMap<String, Handle<Image>>);
+
+fn load_manifests(asset_server: Res<AssetServer>, mut manifests: ResMut<Manifests>) {
+    let stone_manifest: Handle<TileManifest> = asset_server.load("tiles/stones.manifest.ron");
+    manifests.0.push(stone_manifest);
 }
 
-fn test2(
+fn load_tiles(
+    mut cmds: Commands,
     keys: Res<Input<KeyCode>>,
+    asset_server: Res<AssetServer>,
     manifests: Res<Assets<TileManifest>>,
     manifest_handles: Res<Manifests>,
 ) {
-    if keys.just_pressed(KeyCode::T) {
+    if keys.just_pressed(KeyCode::Q) {
+        let mut tiles: HashMap<String, Handle<Image>> = HashMap::new();
         for manifest_handle in manifest_handles.0.iter() {
             let Some(manifest) = manifests.get(manifest_handle) else {
-                return;
+                continue;
             };
 
-            println!(
-                "{}",
-                ron::ser::to_string_pretty(&manifest, ron::ser::PrettyConfig::default()).unwrap()
-            );
+            for meta in manifest.tiles.iter() {
+                let tile_image: Handle<Image> = asset_server
+                    .load("tiles/".to_owned() + &manifest.name + "/" + &meta.name + ".png");
+                tiles.insert(meta.name.clone(), tile_image);
+            }
         }
+        cmds.insert_resource(Tiles(tiles));
     }
 }
