@@ -1,5 +1,3 @@
-use std::{fs, path::PathBuf};
-
 use bevy::{
     ecs::system::Command,
     prelude::*,
@@ -10,11 +8,7 @@ use bevy::{
 use bevy_common_assets::ron::RonAssetPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
-use rand::{
-    rngs::ThreadRng,
-    seq::{IteratorRandom, SliceRandom},
-    thread_rng,
-};
+use rand::{seq::IteratorRandom, thread_rng};
 use serde::{Deserialize, Serialize};
 
 fn main() {
@@ -38,52 +32,6 @@ fn main() {
     app.add_systems(Update, (load_palette, apply_deferred, spawn_map).chain());
     app.add_systems(Update, load_tiles);
     app.run()
-}
-
-pub struct SpawnVoxelCommand {
-    pos: Vec3,
-    layer: usize,
-    flip: bool,
-}
-
-impl Command for SpawnVoxelCommand {
-    fn apply(self, world: &mut World) {
-        let offset = Vec2::splat(1.);
-        let l = match self.layer {
-            2 => 6,
-            x => x,
-        } as f32;
-        let pos = self.pos + ((offset * 9.).extend(-10.) * l);
-
-        world.resource_scope(|world, palette: Mut<Palette>| {
-            let sprite = |color: Color| -> Sprite {
-                Sprite {
-                    color,
-                    custom_size: Some(Vec2::splat(20.)),
-                    ..default()
-                }
-            };
-
-            world
-                .spawn(SpriteBundle {
-                    sprite: sprite(palette.get_sun_color(1, 0, self.layer)),
-                    transform: Transform::from_translation(pos),
-                    ..default()
-                })
-                .with_children(|builder| {
-                    for i in 1..10 {
-                        builder.spawn(SpriteBundle {
-                            sprite: sprite(palette.get_sun_color(1, i, self.layer)),
-                            transform: Transform::from_translation(
-                                (offset * ((1 - 2 * self.flip as i32) as f32)).extend(-1.)
-                                    * i as f32,
-                            ),
-                            ..default()
-                        });
-                    }
-                });
-        });
-    }
 }
 
 fn setup(mut cmds: Commands, asset_server: Res<AssetServer>) {
@@ -117,25 +65,6 @@ fn spawn_map(
         let map_height = map.len();
         let mut rng = thread_rng();
 
-        /*
-        for (l, layer) in map.iter().enumerate() {
-            for (y, row) in layer.iter().rev().enumerate() {
-                for (x, tile) in row.iter().enumerate() {
-                    if *tile == 1 {
-                        let x = x as f32;
-                        let y = y as f32;
-                        let pos = Vec3::new(20. * x, 20. * y, 0.);
-                        cmds.add(SpawnVoxelCommand {
-                            pos,
-                            layer: l,
-                            flip: false,
-                        });
-                    }
-                }
-            }
-        }
-        */
-
         let voxel_size = 20;
         let width = map_width * voxel_size;
         let height = map_height * voxel_size;
@@ -149,7 +78,7 @@ fn spawn_map(
         let dimension = TextureDimension::D2;
 
         for l in 0..3 {
-            (0..520).for_each(|_| {
+            (0..(map_width * map_height / 10)).for_each(|_| {
                 let row = (0..map_height).choose(&mut rng).unwrap();
                 let elem = (0..map_width).choose(&mut rng).unwrap();
                 map[row][elem] = 1;
@@ -186,7 +115,7 @@ fn spawn_map(
 
                 let offset = Vec2::splat(1.);
                 let layer = match l {
-                    2 => 6,
+                    2 => 10,
                     x => x,
                 } as f32;
                 let pos = (offset * 10.).extend(-10.) * layer;
