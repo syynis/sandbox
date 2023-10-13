@@ -10,6 +10,11 @@ use bevy::{
 use bevy_common_assets::ron::RonAssetPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
+use rand::{
+    rngs::ThreadRng,
+    seq::{IteratorRandom, SliceRandom},
+    thread_rng,
+};
 use serde::{Deserialize, Serialize};
 
 fn main() {
@@ -27,6 +32,7 @@ fn main() {
     app.register_type::<PaletteRows>();
 
     app.insert_resource(Manifests::default());
+    app.insert_resource(MapImages::default());
 
     app.add_systems(Startup, (setup, load_manifests));
     app.add_systems(Update, (load_palette, apply_deferred, spawn_map).chain());
@@ -93,40 +99,24 @@ fn setup(mut cmds: Commands, asset_server: Res<AssetServer>) {
     cmds.insert_resource(PaletteHandle(palette_asset));
 }
 
-#[derive(Resource)]
-pub struct MapImage(pub Handle<Image>);
+#[derive(Default, Resource)]
+pub struct MapImages(pub Vec<Handle<Image>>);
+
 fn spawn_map(
     mut cmds: Commands,
     keys: Res<Input<KeyCode>>,
     palette: Res<Palette>,
     mut images: ResMut<Assets<Image>>,
+    mut map_images: ResMut<MapImages>,
 ) {
     if keys.just_pressed(KeyCode::W) {
-        let map = [
-            [
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 1, 1, 1, 1, 1, 0],
-                [1, 0, 0, 0, 0, 0, 1, 1],
-                [1, 0, 0, 0, 0, 0, 1, 1],
-                [1, 1, 1, 0, 0, 1, 1, 0],
-            ],
-            [
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 1, 1, 1, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0, 0, 0],
-                [1, 0, 1, 0, 0, 0, 1, 1],
-                [1, 1, 1, 0, 0, 1, 1, 0],
-            ],
-            [
-                [0, 1, 1, 1, 1, 1, 0, 0],
-                [0, 1, 1, 1, 1, 1, 0, 0],
-                [0, 0, 0, 0, 1, 1, 0, 0],
-                [0, 0, 0, 1, 1, 1, 0, 0],
-                [0, 0, 1, 1, 1, 1, 1, 0],
-            ],
-        ];
+        cmds.insert_resource(ClearColor(palette.meta.skycolor));
 
-        //cmds.insert_resource(ClearColor(palette.meta.skycolor));
+        let mut map = vec![vec![0; 64]; 36];
+        let map_width = map[0].len();
+        let map_height = map.len();
+        let mut rng = thread_rng();
+
         /*
         for (l, layer) in map.iter().enumerate() {
             for (y, row) in layer.iter().rev().enumerate() {
@@ -146,54 +136,69 @@ fn spawn_map(
         }
         */
 
-        #[rustfmt::skip]
-        let map = [
-            [1, 0, 0, 0, 1], 
-            [0, 0, 1, 0, 0], 
-            [0, 1, 0, 1, 0], 
-            [0, 0, 1, 0, 0], 
-            [1, 0, 0, 0, 1], 
-        ];
         let voxel_size = 20;
-        let map_width = map[0].len();
-        let map_height = map.len();
         let width = map_width * voxel_size;
         let height = map_height * voxel_size;
-        let texture_format_size = 4; // Rgba8Uint -> 4 channels each a u8
+        let texture_format_size = 4; // 4 channels each a u8
+        let voxel_data_size = voxel_size * texture_format_size;
         let size = Extent3d {
             width: width as u32,
             height: height as u32,
             ..default()
         };
         let dimension = TextureDimension::D2;
-        let mut data: Vec<u8> = vec![255; (texture_format_size * width * height) as usize];
-        for (y, row) in map.iter().enumerate() {
-            for (x, tile) in row.iter().enumerate() {
-                if *tile == 1 {
-                    let x_part = x * (texture_format_size * voxel_size) as usize;
-                    let y_part = y * width * texture_format_size as usize * voxel_size;
-                    let start = x_part + y_part;
-                    data[start + 3] = 0;
-                    for vy in 0..voxel_size {
-                        for vx in 0..voxel_size {
-                            let pos = start
-                                + vx as usize * texture_format_size as usize
-                                + vy as usize * voxel_size * map_width as usize * texture_format_size as usize;
-                            data[pos] = 0;
-                            data[pos + 1] = 0;
-                            data[pos + 2] = 0;
+
+        for l in 0..3 {
+            (0..520).for_each(|_| {
+                let row = (0..map_height).choose(&mut rng).unwrap();
+                let elem = (0..map_width).choose(&mut rng).unwrap();
+                map[row][elem] = 1;
+            });
+            for idx in 0..10 {
+                let mut data: Vec<u8> = vec![255; (texture_format_size * width * height) as usize];
+                for (y, row) in map.iter().enumerate() {
+                    for (x, tile) in row.iter().enumerate() {
+                        let x_part = x * voxel_data_size;
+                        let y_part = y * width * voxel_data_size;
+                        let start = x_part + y_part;
+                        for vy in 0usize..voxel_size {
+                            for vx in 0..voxel_size {
+                                let pos = start
+                                    + vx * texture_format_size as usize
+                                    + vy * voxel_data_size * map_width as usize;
+
+                                if *tile == 1 {
+                                    let color = palette.get_sun_color(1, idx, l).as_rgba_u8();
+                                    let (r, g, b) = (color[0], color[1], color[2]);
+                                    data[pos] = r;
+                                    data[pos + 1] = g;
+                                    data[pos + 2] = b;
+                                } else if *tile == 0 {
+                                    data[pos + 3] = 0;
+                                }
+                            }
                         }
                     }
                 }
+
+                let image = Image::new(size, dimension, data, TextureFormat::Rgba8Unorm);
+                let handle = images.add(image);
+
+                let offset = Vec2::splat(1.);
+                let layer = match l {
+                    2 => 6,
+                    x => x,
+                } as f32;
+                let pos = (offset * 10.).extend(-10.) * layer;
+                cmds.spawn(SpriteBundle {
+                    texture: handle.clone(),
+                    transform: Transform::from_translation(pos + offset.extend(-1.) * idx as f32),
+                    ..default()
+                });
+
+                map_images.0.push(handle);
             }
         }
-        let image = Image::new(size, dimension, data, TextureFormat::Rgba8Unorm);
-        let handle = images.add(image);
-        cmds.spawn(SpriteBundle {
-            texture: handle.clone(),
-            ..default()
-        });
-        cmds.insert_resource(MapImage(handle));
     }
 }
 
