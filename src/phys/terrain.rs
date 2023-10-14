@@ -27,7 +27,7 @@ pub fn handle_platforms(
     passers: Query<Option<&PlatformPass>, (With<Collider>, Without<Platform>)>,
     mut collisions: ResMut<Collisions>,
 ) {
-    collisions.retain(|(e1, e2), contacts| {
+    collisions.retain(|contacts| {
         fn any_penetrating(contacts: &Contacts) -> bool {
             contacts.manifolds.iter().any(|manifold| {
                 manifold
@@ -42,23 +42,24 @@ pub fn handle_platforms(
             Normal2,
         }
 
-        let (mut platform, other, normal) = if let Ok(platform) = platforms.get_mut(*e1) {
-            (platform, e2, RelevantNormal::Normal1)
-        } else if let Ok(platform) = platforms.get_mut(*e2) {
-            (platform, e1, RelevantNormal::Normal2)
-        } else {
-            return true;
-        };
+        let (mut platform, other, normal) =
+            if let Ok(platform) = platforms.get_mut(contacts.entity1) {
+                (platform, contacts.entity2, RelevantNormal::Normal1)
+            } else if let Ok(platform) = platforms.get_mut(contacts.entity2) {
+                (platform, contacts.entity1, RelevantNormal::Normal2)
+            } else {
+                return true;
+            };
 
-        if platform.0.contains(other) {
+        if platform.0.contains(&other) {
             if any_penetrating(&contacts) {
                 return false;
             } else {
-                platform.0.remove(other);
+                platform.0.remove(&other);
             }
         }
 
-        match passers.get(*other) {
+        match passers.get(other) {
             Ok(_) => {
                 if contacts.manifolds.iter().all(|manifold| {
                     let normal = match normal {
@@ -70,7 +71,7 @@ pub fn handle_platforms(
                 }) {
                     true
                 } else if any_penetrating(&contacts) {
-                    platform.0.insert(*other);
+                    platform.0.insert(other);
                     false
                 } else {
                     true

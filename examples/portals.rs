@@ -199,40 +199,22 @@ fn sync_link_collisions(
         return;
     };
 
-    for contacts in collisions.collisions_with_entity_mut(link) {
+    let mut player_link_contacts = Vec::new();
+    for contacts in collisions.collisions_with_entity(link) {
+        let mut contacts = contacts.clone();
         let Contacts {
-            entity1,
-            entity2,
-            manifolds,
-            ..
+            entity1, entity2, ..
         } = contacts;
 
-        println!(
-            "before: entiy1: {}, entity2: {}",
-            entity1.index(),
-            entity2.index()
-        );
-        if *entity1 == link {
+        if entity1 == link {
             contacts.entity1 = player;
-        } else if *entity2 == link {
+        } else if entity2 == link {
             contacts.entity2 = player;
         }
-        println!(
-            "after: entiy1: {}, entity2: {}",
-            contacts.entity1.index(),
-            contacts.entity2.index()
-        );
-
-        for manifold in manifolds.iter_mut() {
-            if manifold.entity1 == link {
-                manifold.entity1 = player;
-            } else {
-                manifold.entity2 = player;
-            }
-        }
+        player_link_contacts.push(contacts);
     }
 
-    //collisions.retain(|(e1, e2), _| *e1 != link && *e2 != link);
+    collisions.extend(player_link_contacts);
 }
 
 fn sync_link_pos(
@@ -306,7 +288,7 @@ fn player_in_portal(
                 Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
                 Control::default(),
                 CollisionLayers::new([Layer::Normal], [Layer::Normal]),
-                GravityScale(0.0),
+                GravityScale(1.0),
             ));
             *spawned = true;
         }
