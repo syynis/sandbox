@@ -73,7 +73,7 @@ fn finished_loading(
     palette: Res<PaletteHandle>,
 ) {
     let tiles_loaded =
-        match asset_server.get_group_load_state(tiles.0.values().map(|handle| handle.id())) {
+        match asset_server.get_group_load_state(tiles.0.values().map(|handle| handle.0.id())) {
             LoadState::Loaded => true,
             LoadState::Failed => {
                 bevy::log::error!("Failed to load tile asset");
@@ -103,6 +103,7 @@ fn spawn_map(
     mut cmds: Commands,
     palette: Res<Palette>,
     mut images: ResMut<Assets<Image>>,
+    tiles: Res<Tiles>,
     mut map_images: ResMut<MapImages>,
 ) {
     cmds.insert_resource(ClearColor(palette.meta.skycolor));
@@ -124,6 +125,7 @@ fn spawn_map(
     };
     let dimension = TextureDimension::D2;
 
+    // TODO Probably better to work in pixel coordinates and multiply by texture format size in the end instead of carrying it all the way
     for l in 0..3 {
         (0..(map_width * map_height / 10)).for_each(|_| {
             let row = (0..map_height).choose(&mut rng).unwrap();
@@ -131,6 +133,10 @@ fn spawn_map(
             map[row][elem] = 1;
         });
         for idx in 0..10 {
+            let (tile_handle, tile_meta) = tiles.0.get("small_stone").unwrap();
+            let tile_image = images.get(tile_handle).unwrap();
+            let image_offset = tile_meta.get_image_offset(idx);
+            let layer_offset = image_offset * voxel_size * voxel_size * texture_format_size;
             let mut data: Vec<u8> = vec![255; (texture_format_size * width * height) as usize];
             for (y, row) in map.iter().enumerate() {
                 for (x, tile) in row.iter().enumerate() {
@@ -139,17 +145,33 @@ fn spawn_map(
                     let start = x_part + y_part;
                     for vy in 0usize..voxel_size {
                         for vx in 0..voxel_size {
-                            let pos = start
+                            let rpos = vx * texture_format_size as usize + vy * voxel_data_size;
+                            let wpos = start
                                 + vx * texture_format_size as usize
                                 + vy * voxel_data_size * map_width as usize;
 
                             if *tile == 1 {
-                                let [r, g, b, _] = palette.get_sun_color(1, idx, l).as_rgba_u8();
-                                data[pos] = r;
-                                data[pos + 1] = g;
-                                data[pos + 2] = b;
+                                let rpos = rpos + layer_offset;
+                                let (tr, tg, tb, ta) = (
+                                    tile_image.data[rpos],
+                                    tile_image.data[rpos + 1],
+                                    tile_image.data[rpos + 2],
+                                    tile_image.data[rpos + 3],
+                                );
+                                let dir = match (tr, tg, tb, ta) {
+                                    (0, 0, 0, 0) => 3,
+                                    (255, 0, 0, 255) => 2,
+                                    (0, 255, 0, 255) => 1,
+                                    (0, 0, 255, 255) => 0,
+                                    _ => unreachable!(),
+                                };
+                                let [r, g, b, a] = palette.get_sun_color(dir, idx, l).as_rgba_u8();
+                                data[wpos] = r;
+                                data[wpos + 1] = g;
+                                data[wpos + 2] = b;
+                                data[wpos + 3] = a;
                             } else if *tile == 0 {
-                                data[pos + 3] = 0;
+                                data[wpos + 3] = 0;
                             }
                         }
                     }
@@ -159,7 +181,7 @@ fn spawn_map(
             let image = Image::new(size, dimension, data, TextureFormat::Rgba8Unorm);
             let handle = images.add(image);
 
-            let offset = Vec2::splat(1.);
+            let offset = Vec2::splat(0.5);
             let layer = match l {
                 2 => 10,
                 x => x,
@@ -195,11 +217,27 @@ pub struct Tile {
     layers: Vec<TileLayer>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TileMeta {
     pub name: String,
     pub size: UVec2,
     pub layer_repeats: Vec<usize>,
+}
+
+impl TileMeta {
+    // Returns top left corner of sub image corresponding to the tile layer
+    // Result has to be multiplied by voxel dimension and texture size
+    pub fn get_image_offset(&self, tile_layer: usize) -> usize {
+        // TODO cache this
+        let mut unrolled = Vec::new();
+        for (idx, e) in self.layer_repeats.iter().enumerate() {
+            (0..*e).for_each(|_| {
+                unrolled.push(idx);
+            })
+        }
+        let image_row = unrolled[tile_layer];
+        image_row
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, TypeUuid, TypePath)]
@@ -213,7 +251,7 @@ pub struct TileManifest {
 pub struct Manifests(pub Vec<Handle<TileManifest>>);
 
 #[derive(Default, Resource)]
-pub struct Tiles(pub HashMap<String, Handle<Image>>);
+pub struct Tiles(pub HashMap<String, (Handle<Image>, TileMeta)>);
 
 fn load_manifests(asset_server: Res<AssetServer>, mut manifests: ResMut<Manifests>) {
     let stone_manifest: Handle<TileManifest> = asset_server.load("tiles/stones.manifest.ron");
@@ -242,7 +280,7 @@ fn load_tiles(
     }
     *loaded = true;
 
-    let mut tiles: HashMap<String, Handle<Image>> = HashMap::new();
+    let mut tiles: HashMap<String, (Handle<Image>, TileMeta)> = HashMap::new();
     for manifest_handle in manifest_handles.0.iter() {
         let Some(manifest) = manifests.get(manifest_handle) else {
             continue;
@@ -251,7 +289,7 @@ fn load_tiles(
         for meta in manifest.tiles.iter() {
             let tile_image: Handle<Image> =
                 asset_server.load("tiles/".to_owned() + &manifest.name + "/" + &meta.name + ".png");
-            tiles.insert(meta.name.clone(), tile_image);
+            tiles.insert(meta.name.clone(), (tile_image, meta.clone()));
         }
     }
     cmds.insert_resource(Tiles(tiles));
@@ -280,6 +318,9 @@ pub struct PaletteHandle(Handle<Image>);
 
 impl Palette {
     pub fn get_color(&self, shade: bool, dir: usize, idx: usize, layer: usize) -> Color {
+        if dir == 3 {
+            return Color::rgba_u8(0, 0, 0, 0);
+        }
         if shade {
             self.shade.colors[dir][10 * layer + idx]
         } else {
