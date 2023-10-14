@@ -1,15 +1,11 @@
 use bevy::{
-    asset::LoadState,
     prelude::*,
-    reflect::{TypePath, TypeUuid},
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-    utils::hashbrown::HashMap,
 };
-use bevy_common_assets::ron::RonAssetPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use rand::{seq::IteratorRandom, thread_rng};
-use serde::{Deserialize, Serialize};
+use sandbox::editor::{palette::Palette, tiles::Tiles, AppState, EditorPlugin};
 
 fn main() {
     let mut app = App::new();
@@ -18,42 +14,18 @@ fn main() {
         DefaultPlugins.set(ImagePlugin::default_nearest()),
         PanCamPlugin::default(),
         WorldInspectorPlugin::default(),
-        RonAssetPlugin::<TileManifest>::new(&["manifest.ron"]),
+        EditorPlugin,
     ));
 
     app.insert_resource(ClearColor(Color::DARK_GRAY));
-    app.insert_resource(Manifests::default());
     app.insert_resource(MapImages::default());
-    app.insert_resource(Tiles::default());
-
-    app.register_type::<Palette>();
-    app.register_type::<PaletteRows>();
-
-    app.add_state::<AppState>();
 
     app.add_systems(Startup, setup);
-
-    // Loading state
-    app.add_systems(
-        OnEnter(AppState::Loading),
-        (load_palette_image, load_manifests),
-    );
-    app.add_systems(
-        Update,
-        (parse_palette_image, load_tiles, finished_loading).run_if(in_state(AppState::Loading)),
-    );
 
     // Display state
     app.add_systems(OnEnter(AppState::Display), spawn_map);
 
     app.run()
-}
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
-enum AppState {
-    #[default]
-    Loading,
-    Display,
 }
 
 fn setup(mut cmds: Commands) {
@@ -64,36 +36,6 @@ fn setup(mut cmds: Commands) {
             ..default()
         },
     ));
-}
-
-fn finished_loading(
-    mut next_state: ResMut<NextState<AppState>>,
-    asset_server: Res<AssetServer>,
-    tiles: Res<Tiles>,
-    palette: Res<PaletteHandle>,
-) {
-    let tiles_loaded =
-        match asset_server.get_group_load_state(tiles.0.values().map(|handle| handle.0.id())) {
-            LoadState::Loaded => true,
-            LoadState::Failed => {
-                bevy::log::error!("Failed to load tile asset");
-                false
-            }
-            _ => false,
-        };
-
-    let palette_loaded = match asset_server.get_load_state(palette.0.id()) {
-        LoadState::Loaded => true,
-        LoadState::Failed => {
-            bevy::log::error!("Failed to load palette image");
-            false
-        }
-        _ => false,
-    };
-
-    if palette_loaded && tiles_loaded {
-        next_state.set(AppState::Display);
-    }
 }
 
 #[derive(Default, Resource)]
@@ -196,204 +138,4 @@ fn spawn_map(
             map_images.0.push(handle);
         }
     }
-}
-
-#[derive(Default)]
-pub enum TileColorKind {
-    #[default]
-    Up = 0,
-    Neutral = 1,
-    Down = 2,
-    None = 3,
-}
-
-#[derive(Default)]
-pub struct TileLayer {
-    // 20x20 image
-    colors: Vec<TileColorKind>,
-}
-
-pub struct Tile {
-    layers: Vec<TileLayer>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TileMeta {
-    pub name: String,
-    pub size: UVec2,
-    pub layer_repeats: Vec<usize>,
-}
-
-impl TileMeta {
-    // Returns top left corner of sub image corresponding to the tile layer
-    // Result has to be multiplied by voxel dimension and texture size
-    pub fn get_image_offset(&self, tile_layer: usize) -> usize {
-        // TODO cache this
-        let mut unrolled = Vec::new();
-        for (idx, e) in self.layer_repeats.iter().enumerate() {
-            (0..*e).for_each(|_| {
-                unrolled.push(idx);
-            })
-        }
-        let image_row = unrolled[tile_layer];
-        image_row
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, TypeUuid, TypePath)]
-#[uuid = "a4da6acf-87fc-465c-bbf3-7af7f49ef0fd"]
-pub struct TileManifest {
-    pub name: String,
-    pub tiles: Vec<TileMeta>,
-}
-
-#[derive(Default, Resource)]
-pub struct Manifests(pub Vec<Handle<TileManifest>>);
-
-#[derive(Default, Resource)]
-pub struct Tiles(pub HashMap<String, (Handle<Image>, TileMeta)>);
-
-fn load_manifests(asset_server: Res<AssetServer>, mut manifests: ResMut<Manifests>) {
-    let stone_manifest: Handle<TileManifest> = asset_server.load("tiles/stones.manifest.ron");
-    manifests.0.push(stone_manifest);
-}
-
-fn load_tiles(
-    mut cmds: Commands,
-    asset_server: Res<AssetServer>,
-    manifests: Res<Assets<TileManifest>>,
-    manifest_handles: Res<Manifests>,
-    mut loaded: Local<bool>,
-) {
-    let manifests_loaded = match asset_server
-        .get_group_load_state(manifest_handles.0.iter().map(|handle| handle.id()))
-    {
-        LoadState::Loaded => true,
-        LoadState::Failed => {
-            bevy::log::error!("Failed to load tile asset");
-            false
-        }
-        _ => false,
-    };
-    if *loaded || !manifests_loaded {
-        return;
-    }
-    *loaded = true;
-
-    let mut tiles: HashMap<String, (Handle<Image>, TileMeta)> = HashMap::new();
-    for manifest_handle in manifest_handles.0.iter() {
-        let Some(manifest) = manifests.get(manifest_handle) else {
-            continue;
-        };
-
-        for meta in manifest.tiles.iter() {
-            let tile_image: Handle<Image> =
-                asset_server.load("tiles/".to_owned() + &manifest.name + "/" + &meta.name + ".png");
-            tiles.insert(meta.name.clone(), (tile_image, meta.clone()));
-        }
-    }
-    cmds.insert_resource(Tiles(tiles));
-}
-
-#[derive(Default, Reflect)]
-pub struct PaletteMeta {
-    pub skycolor: Color,
-}
-
-#[derive(Default, Reflect)]
-pub struct PaletteRows {
-    colors: [[Color; 30]; 3],
-}
-
-#[derive(Default, Resource, Reflect)]
-#[reflect(Resource)]
-pub struct Palette {
-    meta: PaletteMeta,
-    sun: PaletteRows,
-    shade: PaletteRows,
-}
-
-#[derive(Resource)]
-pub struct PaletteHandle(Handle<Image>);
-
-impl Palette {
-    pub fn get_color(&self, shade: bool, dir: usize, idx: usize, layer: usize) -> Color {
-        if dir == 3 {
-            return Color::rgba_u8(0, 0, 0, 0);
-        }
-        if shade {
-            self.shade.colors[dir][10 * layer + idx]
-        } else {
-            self.sun.colors[dir][10 * layer + idx]
-        }
-    }
-
-    pub fn get_sun_color(&self, dir: usize, idx: usize, layer: usize) -> Color {
-        self.get_color(false, dir, idx, layer)
-    }
-
-    pub fn get_shade_color(&self, dir: usize, idx: usize, layer: usize) -> Color {
-        self.get_color(true, dir, idx, layer)
-    }
-}
-
-fn load_palette_image(mut cmds: Commands, asset_server: Res<AssetServer>) {
-    let palette_asset: Handle<Image> = asset_server.load("palette.png");
-    cmds.insert_resource(PaletteHandle(palette_asset));
-}
-
-fn parse_palette_image(
-    mut cmds: Commands,
-    asset_server: Res<AssetServer>,
-    palette_handle: Res<PaletteHandle>,
-    images: Res<Assets<Image>>,
-    mut once: Local<bool>,
-) {
-    let palette_loaded = match asset_server.get_load_state(palette_handle.0.id()) {
-        LoadState::Loaded => true,
-        LoadState::Failed => {
-            bevy::log::error!("Failed to load palette image");
-            false
-        }
-        _ => false,
-    };
-
-    if *once || !palette_loaded {
-        return;
-    }
-
-    let Some(palette_image) = images.get(&palette_handle.0) else {
-        return;
-    };
-
-    *once = true;
-
-    let mut meta = PaletteMeta::default();
-    let mut sun = PaletteRows::default();
-    let mut shade = PaletteRows::default();
-    for (row, pixel_row) in palette_image.data.chunks_exact(32 * 4).enumerate() {
-        for (col, pixel) in pixel_row.chunks_exact(4).enumerate() {
-            if col == 30 {
-                break;
-            }
-            let color = Color::rgba_u8(pixel[0], pixel[1], pixel[2], pixel[3]);
-            match row {
-                0 => {
-                    meta.skycolor = color;
-                    break;
-                }
-                1 => {
-                    break;
-                }
-                2..=4 => {
-                    sun.colors[row - 2][col] = color;
-                }
-                5..=7 => {
-                    shade.colors[row - 5][col] = color;
-                }
-                _ => break,
-            };
-        }
-    }
-    cmds.insert_resource(Palette { meta, sun, shade });
 }

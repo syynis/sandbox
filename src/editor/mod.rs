@@ -1,22 +1,85 @@
 use std::path::PathBuf;
 
-use bevy::prelude::*;
+use bevy::{asset::LoadState, prelude::*};
+use bevy_common_assets::ron::RonAssetPlugin;
 use leafwing_input_manager::Actionlike;
 
+pub mod palette;
+pub mod render;
+pub mod tiles;
 pub mod tools;
 pub mod ui;
 
 use crate::file_picker;
 use crate::level::layer::Layer;
 
-use self::tools::{area::ActiveMode, ToolId, ToolSet};
+use self::{
+    palette::{load_palette_image, parse_palette_image, Palette, PaletteHandle, PaletteRows},
+    tiles::{load_manifests, load_tiles, Manifests, TileManifest, Tiles},
+    tools::{area::ActiveMode, ToolId, ToolSet},
+};
 
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(RonAssetPlugin::<TileManifest>::new(&["manifest.ron"]));
+        app.register_type::<Palette>();
+        app.register_type::<PaletteRows>();
+
+        app.add_state::<AppState>();
         app.init_resource::<EditorState>();
         app.init_resource::<ActiveMode>();
+        app.init_resource::<Manifests>();
+        app.init_resource::<Tiles>();
+        app.init_resource::<Palette>();
+
+        // Loading state
+        app.add_systems(
+            OnEnter(AppState::Loading),
+            (load_palette_image, load_manifests),
+        );
+        app.add_systems(
+            Update,
+            (parse_palette_image, load_tiles, finished_loading).run_if(in_state(AppState::Loading)),
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+pub enum AppState {
+    #[default]
+    Loading,
+    Display,
+}
+
+fn finished_loading(
+    mut next_state: ResMut<NextState<AppState>>,
+    asset_server: Res<AssetServer>,
+    tiles: Res<Tiles>,
+    palette: Res<PaletteHandle>,
+) {
+    let tiles_loaded =
+        match asset_server.get_group_load_state(tiles.0.values().map(|handle| handle.0.id())) {
+            LoadState::Loaded => true,
+            LoadState::Failed => {
+                bevy::log::error!("Failed to load tile asset");
+                false
+            }
+            _ => false,
+        };
+
+    let palette_loaded = match asset_server.get_load_state(palette.0.id()) {
+        LoadState::Loaded => true,
+        LoadState::Failed => {
+            bevy::log::error!("Failed to load palette image");
+            false
+        }
+        _ => false,
+    };
+
+    if palette_loaded && tiles_loaded {
+        next_state.set(AppState::Display);
     }
 }
 
