@@ -7,7 +7,7 @@ use bevy_pancam::{PanCam, PanCamPlugin};
 use rand::{seq::IteratorRandom, thread_rng};
 use sandbox::editor::{
     palette::Palette,
-    tiles::{Tiles, TILE_SIZE},
+    tiles::{Tiles, BASE_TILE_SIZE},
     AppState, EditorPlugin,
 };
 
@@ -67,8 +67,8 @@ fn spawn_map(
         });
     });
 
-    let width = map_width * TILE_SIZE;
-    let height = map_height * TILE_SIZE;
+    let width = map_width * BASE_TILE_SIZE;
+    let height = map_height * BASE_TILE_SIZE;
     let texture_format_size = 4; // 4 channels each a u8
     let size = Extent3d {
         width: width as u32,
@@ -84,11 +84,11 @@ fn spawn_map(
             let mut data: Vec<u8> = vec![0; (texture_format_size * width * height) as usize];
             for (y, row) in map.iter().enumerate() {
                 for (x, tile_id) in row.iter().enumerate() {
-                    let start = (x + y * width) * TILE_SIZE;
-                    for vy in 0..TILE_SIZE {
-                        for vx in 0..TILE_SIZE {
-                            let rpos = vx + vy * TILE_SIZE;
-                            let wpos = (start + vx + vy * TILE_SIZE * map_width as usize)
+                    let start = (x + y * width) * BASE_TILE_SIZE;
+                    for vy in 0..BASE_TILE_SIZE {
+                        for vx in 0..BASE_TILE_SIZE {
+                            let rpos = vx + vy * BASE_TILE_SIZE;
+                            let wpos = (start + vx + vy * BASE_TILE_SIZE * map_width as usize)
                                 * texture_format_size;
 
                             let set_color = |d: &mut [u8], color: Color, idx: usize| {

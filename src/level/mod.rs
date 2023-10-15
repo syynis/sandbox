@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{input::CursorPos, nono::Nonogram};
 
-use self::layer::Layer;
 use self::{layer::ALL_LAYERS, placement::TileUpdateEvent};
 use crate::level::serialization::TilePosRef;
 

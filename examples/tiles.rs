@@ -10,6 +10,8 @@ use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_xpbd_2d::math::Vector;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+use sandbox::editor::render::clear_map;
+use sandbox::editor::render::render_map_images;
 use sandbox::editor::tools::area::AreaTool;
 use sandbox::editor::tools::erase::EraseTool;
 use sandbox::editor::tools::paint::PaintTool;
@@ -91,6 +93,8 @@ fn main() {
             respawn_player,
             draw_look_dir,
             spawn_rock,
+            render_map_images,
+            clear_map,
         ),
     );
 
