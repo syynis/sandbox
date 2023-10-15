@@ -14,8 +14,8 @@ use crate::file_picker;
 use crate::level::layer::Layer;
 
 use self::{
-    palette::{load_palette_image, parse_palette_image, Palette, PaletteHandle, PaletteRows},
-    tiles::{load_manifests, load_tiles, Manifests, TileManifest, Tiles},
+    palette::{load_palette_image, parse_palette_image, Palette, PaletteHandle},
+    tiles::{load_manifests, load_tile_images, load_tiles, Manifests, TileManifest, Tiles},
     tools::{area::ActiveMode, ToolId, ToolSet},
 };
 
@@ -24,14 +24,11 @@ pub struct EditorPlugin;
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(RonAssetPlugin::<TileManifest>::new(&["manifest.ron"]));
-        app.register_type::<Palette>();
-        app.register_type::<PaletteRows>();
 
         app.add_state::<AppState>();
         app.init_resource::<EditorState>();
         app.init_resource::<ActiveMode>();
         app.init_resource::<Manifests>();
-        app.init_resource::<Tiles>();
         app.init_resource::<Palette>();
 
         // Loading state
@@ -41,7 +38,13 @@ impl Plugin for EditorPlugin {
         );
         app.add_systems(
             Update,
-            (parse_palette_image, load_tiles, finished_loading).run_if(in_state(AppState::Loading)),
+            (
+                parse_palette_image,
+                load_tile_images,
+                load_tiles,
+                finished_loading,
+            )
+                .run_if(in_state(AppState::Loading)),
         );
     }
 }
@@ -56,18 +59,10 @@ pub enum AppState {
 fn finished_loading(
     mut next_state: ResMut<NextState<AppState>>,
     asset_server: Res<AssetServer>,
-    tiles: Res<Tiles>,
     palette: Res<PaletteHandle>,
+    tiles: Option<Res<Tiles>>,
 ) {
-    let tiles_loaded =
-        match asset_server.get_group_load_state(tiles.0.values().map(|handle| handle.0.id())) {
-            LoadState::Loaded => true,
-            LoadState::Failed => {
-                bevy::log::error!("Failed to load tile asset");
-                false
-            }
-            _ => false,
-        };
+    let tiles_loaded = tiles.is_some();
 
     let palette_loaded = match asset_server.get_load_state(palette.0.id()) {
         LoadState::Loaded => true,
@@ -92,7 +87,6 @@ pub struct EditorState {
     pub current_loaded_path: Option<PathBuf>,
     pub unsaved_changes: bool,
     pub current_layer: Layer,
-    // TODO Layers
 }
 
 impl EditorState {

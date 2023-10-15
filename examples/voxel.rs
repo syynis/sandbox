@@ -5,7 +5,11 @@ use bevy::{
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use rand::{seq::IteratorRandom, thread_rng};
-use sandbox::editor::{palette::Palette, tiles::Tiles, AppState, EditorPlugin};
+use sandbox::editor::{
+    palette::Palette,
+    tiles::{Tiles, TILE_SIZE},
+    AppState, EditorPlugin,
+};
 
 fn main() {
     let mut app = App::new();
@@ -55,11 +59,17 @@ fn spawn_map(
     let map_height = map.len();
     let mut rng = thread_rng();
 
-    let voxel_size = 20;
-    let width = map_width * voxel_size;
-    let height = map_height * voxel_size;
+    (0..3).for_each(|_| {
+        (0..(map_width * map_height / 10)).for_each(|_| {
+            let row = (0..map_height).choose(&mut rng).unwrap();
+            let elem = (0..map_width).choose(&mut rng).unwrap();
+            map[row][elem] = 1;
+        });
+    });
+
+    let width = map_width * TILE_SIZE;
+    let height = map_height * TILE_SIZE;
     let texture_format_size = 4; // 4 channels each a u8
-    let voxel_data_size = voxel_size * texture_format_size;
     let size = Extent3d {
         width: width as u32,
         height: height as u32,
@@ -67,53 +77,31 @@ fn spawn_map(
     };
     let dimension = TextureDimension::D2;
 
-    // TODO Probably better to work in pixel coordinates and multiply by texture format size in the end instead of carrying it all the way
+    // TODO make this work for different sized tiles
+    let tile = tiles.0.get("small_stone").unwrap();
     for l in 0..3 {
-        (0..(map_width * map_height / 10)).for_each(|_| {
-            let row = (0..map_height).choose(&mut rng).unwrap();
-            let elem = (0..map_width).choose(&mut rng).unwrap();
-            map[row][elem] = 1;
-        });
         for idx in 0..10 {
-            let (tile_handle, tile_meta) = tiles.0.get("small_stone").unwrap();
-            let tile_image = images.get(tile_handle).unwrap();
-            let image_offset = tile_meta.get_image_offset(idx);
-            let layer_offset = image_offset * voxel_size * voxel_size * texture_format_size;
-            let mut data: Vec<u8> = vec![255; (texture_format_size * width * height) as usize];
+            let mut data: Vec<u8> = vec![0; (texture_format_size * width * height) as usize];
             for (y, row) in map.iter().enumerate() {
-                for (x, tile) in row.iter().enumerate() {
-                    let x_part = x * voxel_data_size;
-                    let y_part = y * width * voxel_data_size;
-                    let start = x_part + y_part;
-                    for vy in 0usize..voxel_size {
-                        for vx in 0..voxel_size {
-                            let rpos = vx * texture_format_size as usize + vy * voxel_data_size;
-                            let wpos = start
-                                + vx * texture_format_size as usize
-                                + vy * voxel_data_size * map_width as usize;
+                for (x, tile_id) in row.iter().enumerate() {
+                    let start = (x + y * width) * TILE_SIZE;
+                    for vy in 0..TILE_SIZE {
+                        for vx in 0..TILE_SIZE {
+                            let rpos = vx + vy * TILE_SIZE;
+                            let wpos = (start + vx + vy * TILE_SIZE * map_width as usize)
+                                * texture_format_size;
 
-                            if *tile == 1 {
-                                let rpos = rpos + layer_offset;
-                                let (tr, tg, tb, ta) = (
-                                    tile_image.data[rpos],
-                                    tile_image.data[rpos + 1],
-                                    tile_image.data[rpos + 2],
-                                    tile_image.data[rpos + 3],
-                                );
-                                let dir = match (tr, tg, tb, ta) {
-                                    (0, 0, 0, 0) => 3,
-                                    (255, 0, 0, 255) => 2,
-                                    (0, 255, 0, 255) => 1,
-                                    (0, 0, 255, 255) => 0,
-                                    _ => unreachable!(),
-                                };
-                                let [r, g, b, a] = palette.get_sun_color(dir, idx, l).as_rgba_u8();
-                                data[wpos] = r;
-                                data[wpos + 1] = g;
-                                data[wpos + 2] = b;
-                                data[wpos + 3] = a;
-                            } else if *tile == 0 {
-                                data[wpos + 3] = 0;
+                            let set_color = |d: &mut [u8], color: Color, idx: usize| {
+                                let [r, g, b, a] = color.as_rgba_u8();
+                                d[idx] = r;
+                                d[idx + 1] = g;
+                                d[idx + 2] = b;
+                                d[idx + 3] = a;
+                            };
+                            if *tile_id == 1 {
+                                let dir = tile.get_kind(idx, rpos) as usize;
+                                let color = palette.get_sun_color(dir, idx, l);
+                                set_color(&mut data, color, wpos);
                             }
                         }
                     }
