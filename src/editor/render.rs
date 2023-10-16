@@ -122,7 +122,7 @@ pub fn render_map_images(
                                 d[idx + 3] = a;
                             };
                             if let Some(tile_id) = tile_id {
-                                let dir = tile.get_kind(idx, rpos) as usize;
+                                let dir = tile.get_pixel(idx, rpos) as usize;
                                 let color = palette.get_sun_color(dir, idx, l);
                                 set_color(&mut data, color, wpos);
                             }

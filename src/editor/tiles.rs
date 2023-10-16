@@ -28,7 +28,7 @@ pub struct Tile {
 }
 
 impl Tile {
-    pub fn get_kind(&self, sub_layer: usize, pos: usize) -> TilePixel {
+    pub fn get_pixel(&self, sub_layer: usize, pos: usize) -> TilePixel {
         let tile_layer = self.computed_tile_layers[sub_layer];
         self.layers[tile_layer].colors[pos].clone()
     }
