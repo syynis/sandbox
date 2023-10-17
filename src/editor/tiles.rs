@@ -49,13 +49,12 @@ impl SubTile {
 pub struct Material {
     // 0: NW, 1: NE, 2: SE, 3: SW
     sub_tiles: Vec<SubTile>,
+    computed_tile_layers: Vec<usize>,
 }
 
 impl Material {
     pub fn get_pixel(&self, sub_layer: usize, rpos: usize, neighbors: &Vec<bool>) -> TilePixel {
-        if sub_layer != 0 {
-            return TilePixel::Neutral;
-        }
+        let tile_layer = self.computed_tile_layers.get(sub_layer);
         let (x, y) = (rpos % TILE_SIZE, rpos / TILE_SIZE);
 
         let quadrant = match (x, y) {
@@ -70,9 +69,11 @@ impl Material {
         let y = if y > 9 { y - 10 } else { y };
         let idx = x + y * TILE_SIZE / 2;
 
-        self.sub_tiles[quadrant]
-            .get(&neighbors[(quadrant * 2)..=(quadrant * 2 + 2)])
-            .colors[idx]
+        tile_layer.map_or(TilePixel::Neutral, |layer| {
+            self.sub_tiles[quadrant]
+                .get(&neighbors[(quadrant * 2)..=(quadrant * 2 + 2)])
+                .colors[idx]
+        })
     }
 }
 
@@ -84,8 +85,11 @@ pub struct Tile {
 
 impl Tile {
     pub fn get_pixel(&self, sub_layer: usize, rpos: usize) -> TilePixel {
-        let tile_layer = self.computed_tile_layers[sub_layer];
-        self.layers[tile_layer].colors[rpos].clone()
+        self.computed_tile_layers
+            .get(sub_layer)
+            .map_or(TilePixel::Neutral, |tile_layer| {
+                self.layers[*tile_layer].colors[rpos].clone()
+            })
     }
 }
 
@@ -200,7 +204,9 @@ pub fn load_tiles(
             let tile_layer = unrolled[sub_layer];
             tile_layer
         };
-
+        let computed_tile_layers = (0..meta.layer_repeats.iter().sum())
+            .map(|idx| get_tile_layer(idx))
+            .collect();
         if meta.is_material {
             let material_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
             let res: Vec<SubTile> = tile_image
@@ -237,7 +243,10 @@ pub fn load_tiles(
                         .collect::<Vec<TileLayer>>(),
                 })
                 .collect();
-            let material = Material { sub_tiles: res };
+            let material = Material {
+                sub_tiles: res,
+                computed_tile_layers,
+            };
             materials.insert(name.clone(), material);
         } else {
             let tile = Tile {
@@ -261,7 +270,7 @@ pub fn load_tiles(
                         colors: chunk.to_vec(),
                     })
                     .collect(),
-                computed_tile_layers: (0..10).map(|idx| get_tile_layer(idx)).collect(),
+                computed_tile_layers,
                 size: meta.size,
             };
             tiles.insert(name.clone(), tile);
