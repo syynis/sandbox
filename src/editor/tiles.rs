@@ -21,10 +21,51 @@ pub struct TileLayer {
     pub colors: Vec<TilePixel>,
 }
 
+struct SubTile(pub Vec<TileLayer>);
+
+impl SubTile {
+    pub fn get(&self, adj: &[bool]) -> &TileLayer {
+        let horizontal = adj[0];
+        let vertical = adj[1];
+        let diagonal = adj[2];
+
+        let idx = match (horizontal, vertical, diagonal) {
+            (true, true, _) => 4,
+            (false, false, true) => 3,
+            (true, false, _) => 2,
+            (false, true, _) => 1,
+            (false, false, false) => 0,
+        };
+
+        &self.0[idx]
+    }
+}
+
+pub struct Material {
+    // 0: NW, 1: NE, 2: SE, 3: SW
+    pub sub_tiles: Vec<SubTile>,
+}
+
+pub struct Neighbors(pub [bool; 8]);
+
+impl Material {
+    pub fn get_from_neighbors(&self, neighbors: Neighbors) -> Tile {
+        let tl = self.sub_tiles[0].get(&neighbors.0[0..=2]);
+        let tr = self.sub_tiles[1].get(&neighbors.0[2..=4]);
+        let br = self.sub_tiles[2].get(&neighbors.0[4..=6]);
+        let br = self.sub_tiles[2].get(&neighbors.0[6..=8]);
+        Tile {
+            layers: Vec::new(),
+            computed_tile_layers: vec![0; 10],
+            size: UVec2::new(1, 1),
+        }
+    }
+}
+
 pub struct Tile {
     pub layers: Vec<TileLayer>,
     computed_tile_layers: Vec<usize>,
-    meta: TileMeta,
+    size: UVec2,
 }
 
 impl Tile {
@@ -39,6 +80,7 @@ pub struct TileMeta {
     pub name: String,
     pub size: UVec2,
     pub layer_repeats: Vec<usize>,
+    pub is_material: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, TypeUuid, TypePath)]
@@ -56,6 +98,9 @@ pub struct TileImages(pub HashMap<String, (Handle<Image>, TileMeta)>);
 
 #[derive(Default, Resource)]
 pub struct Tiles(pub HashMap<String, Tile>);
+
+#[derive(Default, Resource)]
+pub struct Materials(pub HashMap<String, Material>);
 
 pub fn load_manifests(asset_server: Res<AssetServer>, mut manifests: ResMut<Manifests>) {
     let stone_manifest: Handle<TileManifest> = asset_server.load("tiles/stones.manifest.ron");
@@ -127,6 +172,7 @@ pub fn load_tiles(
     *loaded = true;
 
     let mut tiles: HashMap<String, Tile> = HashMap::new();
+    let mut materials: HashMap<String, Material> = HashMap::new();
     for (name, (handle, meta)) in tile_images.0.iter() {
         let tile_image = images.get(handle).unwrap();
 
@@ -141,32 +187,72 @@ pub fn load_tiles(
             tile_layer
         };
 
-        let tile = Tile {
-            layers: tile_image
+        if meta.is_material {
+            let material_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
+            let half_tile_size = BASE_TILE_SIZE / 2;
+            let res: Vec<Vec<TileLayer>> = tile_image
                 .data
-                .chunks(BASE_TILE_SIZE.pow(2) * 4 * (meta.size.x * meta.size.y) as usize)
-                .map(|chunk| TileLayer {
-                    colors: chunk
-                        .chunks(4)
-                        .map(|color_data| {
-                            let (r, g, b, a) =
-                                (color_data[0], color_data[1], color_data[2], color_data[3]);
-                            match (r, g, b, a) {
-                                (0, 0, 0, 0) => TilePixel::None,
-                                (255, 0, 0, 255) => TilePixel::Up,
-                                (0, 255, 0, 255) => TilePixel::Neutral,
-                                (0, 0, 255, 255) => TilePixel::Down,
-                                _ => unreachable!(),
+                .chunks(4)
+                .map(|pixel| {
+                    let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
+                    match (r, g, b, a) {
+                        (0, 0, 0, 0) => TilePixel::None,
+                        (255, 0, 0, 255) => TilePixel::Up,
+                        (0, 255, 0, 255) => TilePixel::Neutral,
+                        (0, 0, 255, 255) => TilePixel::Down,
+                        _ => unreachable!(),
+                    }
+                })
+                .collect::<Vec<TilePixel>>()
+                .chunks(half_tile_size.pow(2) * material_rows)
+                .map(|row| {
+                    (0..material_rows)
+                        .map(|r| {
+                            let start = r * half_tile_size;
+                            TileLayer {
+                                colors: (0..half_tile_size)
+                                    .flat_map(move |vy| (0..half_tile_size).map(move |vx| (vx, vy)))
+                                    .map(|(vx, vy)| {
+                                        let wpos = start + vx + vy * half_tile_size * material_rows;
+                                        row[wpos]
+                                    })
+                                    .collect(),
                             }
                         })
-                        .collect(),
+                        .collect::<Vec<TileLayer>>()
                 })
-                .collect(),
-            computed_tile_layers: (0..10).map(|idx| get_tile_layer(idx)).collect(),
-            meta: meta.clone(),
-        };
-        tiles.insert(name.clone(), tile);
+                .collect();
+            let material = Material { sub_tiles: res };
+            materials.insert(name.clone(), material);
+        } else {
+            let tile = Tile {
+                layers: tile_image
+                    .data
+                    .chunks(4)
+                    .map(|color_data| {
+                        let (r, g, b, a) =
+                            (color_data[0], color_data[1], color_data[2], color_data[3]);
+                        match (r, g, b, a) {
+                            (0, 0, 0, 0) => TilePixel::None,
+                            (255, 0, 0, 255) => TilePixel::Up,
+                            (0, 255, 0, 255) => TilePixel::Neutral,
+                            (0, 0, 255, 255) => TilePixel::Down,
+                            _ => unreachable!(),
+                        }
+                    })
+                    .collect::<Vec<TilePixel>>()
+                    .chunks(BASE_TILE_SIZE.pow(2) * (meta.size.x * meta.size.y) as usize)
+                    .map(|chunk| TileLayer {
+                        colors: chunk.to_vec(),
+                    })
+                    .collect(),
+                computed_tile_layers: (0..10).map(|idx| get_tile_layer(idx)).collect(),
+                size: meta.size,
+            };
+            tiles.insert(name.clone(), tile);
+        }
     }
 
     cmds.insert_resource(Tiles(tiles));
+    cmds.insert_resource(Materials(materials));
 }

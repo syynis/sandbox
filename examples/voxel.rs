@@ -7,7 +7,7 @@ use bevy_pancam::{PanCam, PanCamPlugin};
 use rand::{seq::IteratorRandom, thread_rng};
 use sandbox::editor::{
     palette::Palette,
-    tiles::{Tiles, BASE_TILE_SIZE},
+    tiles::{Materials, Tiles, BASE_TILE_SIZE},
     AppState, EditorPlugin,
 };
 
@@ -50,6 +50,7 @@ fn spawn_map(
     palette: Res<Palette>,
     mut images: ResMut<Assets<Image>>,
     tiles: Res<Tiles>,
+    materials: Res<Materials>,
     mut map_images: ResMut<MapImages>,
 ) {
     cmds.insert_resource(ClearColor(palette.meta.skycolor));
@@ -78,7 +79,8 @@ fn spawn_map(
     let dimension = TextureDimension::D2;
 
     // TODO make this work for different sized tiles
-    let tile = tiles.0.get("small_stone").unwrap();
+    let tile = tiles.0.get("brick").unwrap();
+    let material = materials.0.get("standard").unwrap();
     for l in 0..3 {
         for idx in 0..10 {
             let mut data: Vec<u8> = vec![0; (texture_format_size * width * height) as usize];
@@ -99,7 +101,7 @@ fn spawn_map(
                                 d[idx + 3] = a;
                             };
                             if *tile_id == 1 {
-                                let dir = tile.get_kind(idx, rpos) as usize;
+                                let dir = tile.get_pixel(idx, rpos) as usize;
                                 let color = palette.get_sun_color(dir, idx, l);
                                 set_color(&mut data, color, wpos);
                             }

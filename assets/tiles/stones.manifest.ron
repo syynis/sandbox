@@ -5,16 +5,17 @@
             name: "small_stone",
             size: (1, 1),
             layer_repeats: [
-                10,
+                1, 9,
             ],
+            is_material: false,
         ),
-
         (
             name: "medium_stone",
             size: (2, 2),
             layer_repeats: [
                 10,
             ],
+            is_material: false,
         ),
         (
             name: "brick",
@@ -22,6 +23,15 @@
             layer_repeats: [
                 1, 1, 8,
             ],
+            is_material: false,
+        ),
+        (
+            name: "standard",
+            size: (1, 1),
+            layer_repeats: [
+                10,
+            ],
+            is_material: true,
         ),
     ],
 )
