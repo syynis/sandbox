@@ -15,7 +15,9 @@ use crate::level::layer::Layer;
 
 use self::{
     palette::{load_palette_image, parse_palette_image, Palette, PaletteHandle},
-    tiles::{load_manifests, load_tile_images, load_tiles, Manifests, TileManifest, Tiles},
+    tiles::{
+        load_manifests, load_tile_images, load_tiles, Manifests, Materials, TileManifest, Tiles,
+    },
     tools::{area::ActiveMode, ToolId, ToolSet},
 };
 
@@ -61,8 +63,10 @@ fn finished_loading(
     asset_server: Res<AssetServer>,
     palette: Res<PaletteHandle>,
     tiles: Option<Res<Tiles>>,
+    materials: Option<Res<Materials>>,
 ) {
     let tiles_loaded = tiles.is_some();
+    let materials_loaded = materials.is_some();
 
     let palette_loaded = match asset_server.get_load_state(palette.0.id()) {
         LoadState::Loaded => true,
@@ -73,7 +77,7 @@ fn finished_loading(
         _ => false,
     };
 
-    if palette_loaded && tiles_loaded {
+    if palette_loaded && tiles_loaded && materials_loaded {
         next_state.set(AppState::Display);
     }
 }

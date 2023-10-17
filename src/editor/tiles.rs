@@ -22,23 +22,27 @@ pub struct TileLayer {
     pub colors: Vec<TilePixel>,
 }
 
-struct SubTile(pub Vec<TileLayer>);
+struct SubTile {
+    quadrant: usize,
+    data: Vec<TileLayer>,
+}
 
 impl SubTile {
     pub fn get(&self, adj: &[bool]) -> &TileLayer {
-        let horizontal = adj[0];
-        let vertical = adj[1];
-        let diagonal = adj[2];
+        let horizontal = adj[2 * (self.quadrant % 2)];
+        let vertical = adj[2 * (1 - (self.quadrant % 2))];
+        let diagonal = adj[1];
 
         let idx = match (horizontal, vertical, diagonal) {
-            (true, true, _) => 4,
-            (false, false, true) => 3,
-            (true, false, _) => 2,
-            (false, true, _) => 1,
-            (false, false, false) => 0,
+            (true, true, true) => 4,    // All neighbors
+            (true, true, false) => 3,   // Only cardinal neighbors
+            (true, false, _) => 2,      // Horizontal neighbor
+            (false, true, _) => 1,      // Vertical neighbor
+            (false, false, true) => 0,  // Only diagonal neighbor
+            (false, false, false) => 0, // No neighbors
         };
 
-        &self.0[idx]
+        &self.data[idx]
     }
 }
 
@@ -47,11 +51,13 @@ pub struct Material {
     sub_tiles: Vec<SubTile>,
 }
 
-pub struct Neighbors(pub [bool; 8]);
-
 impl Material {
-    pub fn get_pixel(&self, sub_layer: usize, rpos: usize, neighbors: &Neighbors) -> TilePixel {
+    pub fn get_pixel(&self, sub_layer: usize, rpos: usize, neighbors: &Vec<bool>) -> TilePixel {
+        if sub_layer != 0 {
+            return TilePixel::Neutral;
+        }
         let (x, y) = (rpos % TILE_SIZE, rpos / TILE_SIZE);
+
         let quadrant = match (x, y) {
             ((0..=9), (0..=9)) => 0,     // Top left
             ((10..=19), (0..=9)) => 1,   // Top right
@@ -65,7 +71,7 @@ impl Material {
         let idx = x + y * TILE_SIZE / 2;
 
         self.sub_tiles[quadrant]
-            .get(&neighbors.0[(quadrant * 2)..=(quadrant * 2 + 2)])
+            .get(&neighbors[(quadrant * 2)..=(quadrant * 2 + 2)])
             .colors[idx]
     }
 }
@@ -212,26 +218,23 @@ pub fn load_tiles(
                 })
                 .collect::<Vec<TilePixel>>()
                 .chunks(HALF_TILE_SIZE.pow(2) * material_rows)
-                .map(|row| {
-                    SubTile(
-                        (0..material_rows)
-                            .map(|r| {
-                                let start = r * HALF_TILE_SIZE;
-                                TileLayer {
-                                    colors: (0..HALF_TILE_SIZE)
-                                        .flat_map(move |vy| {
-                                            (0..HALF_TILE_SIZE).map(move |vx| (vx, vy))
-                                        })
-                                        .map(|(vx, vy)| {
-                                            let wpos =
-                                                start + vx + vy * HALF_TILE_SIZE * material_rows;
-                                            row[wpos]
-                                        })
-                                        .collect(),
-                                }
-                            })
-                            .collect::<Vec<TileLayer>>(),
-                    )
+                .enumerate()
+                .map(|(quadrant, row)| SubTile {
+                    quadrant,
+                    data: (0..material_rows)
+                        .map(|r| {
+                            let start = r * HALF_TILE_SIZE;
+                            TileLayer {
+                                colors: (0..HALF_TILE_SIZE)
+                                    .flat_map(move |vy| (0..HALF_TILE_SIZE).map(move |vx| (vx, vy)))
+                                    .map(|(vx, vy)| {
+                                        let wpos = start + vx + vy * HALF_TILE_SIZE * material_rows;
+                                        row[wpos]
+                                    })
+                                    .collect(),
+                            }
+                        })
+                        .collect::<Vec<TileLayer>>(),
                 })
                 .collect();
             let material = Material { sub_tiles: res };

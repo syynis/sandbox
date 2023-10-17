@@ -54,12 +54,12 @@ impl WorldMapExt for &mut World {
 }
 
 pub struct SpawnMapCommand {
-    size: u32,
+    size: UVec2,
     tile_size: u32,
 }
 
 impl SpawnMapCommand {
-    pub fn new(size: u32, tile_size: u32) -> Self {
+    pub fn new(size: UVec2, tile_size: u32) -> Self {
         Self { size, tile_size }
     }
 }
@@ -70,7 +70,7 @@ impl Command for SpawnMapCommand {
             let assets_server = world.resource::<AssetServer>();
             let tiles: Handle<Image> = assets_server.load("tiles.png");
 
-            let size = TilemapSize::from(UVec2::splat(self.size));
+            let size = TilemapSize::from(self.size);
             let storage = TileStorage::empty(size);
             let tilemap_entity = world.spawn_empty().id();
 

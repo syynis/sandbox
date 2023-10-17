@@ -21,6 +21,7 @@ use sandbox::editor::tools::run_tool;
 use sandbox::editor::tools::slope::SlopeTool;
 use sandbox::editor::ui::menu::EditorMenuBar;
 use sandbox::editor::ui::toolbar::EditorToolBar;
+use sandbox::editor::AppState;
 use sandbox::editor::EditorActions;
 use sandbox::editor::EditorEvent;
 use sandbox::editor::EditorPlugin;
@@ -93,11 +94,14 @@ fn main() {
             respawn_player,
             draw_look_dir,
             spawn_rock,
-            render_map_images,
             clear_map,
         ),
     );
 
+    app.add_systems(
+        Update,
+        (render_map_images).run_if(in_state(AppState::Display)),
+    );
     app.run();
 }
 
@@ -200,7 +204,7 @@ fn setup(mut cmds: Commands) {
         },),
         Name::new("EditorActions"),
     ));
-    cmds.add(SpawnMapCommand::new(32, 16));
+    cmds.add(SpawnMapCommand::new(UVec2::new(64, 32), 16));
 }
 
 fn load_egui_icons(
@@ -371,7 +375,7 @@ fn handle_new(
                 }
                 cmds.entity(entity).despawn_recursive();
             }
-            cmds.add(SpawnMapCommand::new(32, 16));
+            cmds.add(SpawnMapCommand::new(UVec2::new(64, 32), 16));
             editor_state.reset_path();
         }
     }

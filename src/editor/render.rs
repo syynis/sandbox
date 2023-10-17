@@ -2,7 +2,10 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-use bevy_ecs_tilemap::tiles::{TileFlip, TilePos, TileTextureIndex};
+use bevy_ecs_tilemap::{
+    helpers::square_grid::neighbors::{Neighbors, SquareDirection, SQUARE_DIRECTIONS},
+    tiles::{TileFlip, TilePos, TileTextureIndex},
+};
 
 use crate::level::{
     layer::{Layer, ALL_LAYERS},
@@ -11,22 +14,22 @@ use crate::level::{
 
 use super::{
     palette::Palette,
-    tiles::{Tiles, TILE_SIZE},
+    tiles::{Materials, Tiles, TILE_SIZE},
 };
 
 #[derive(Resource)]
 pub struct MapImages {
     pub images: Vec<Handle<Image>>,
     pub offset: Vec2,
-    pub layer_offset: [f32; 3],
 }
 
 pub fn render_map_images(
     mut cmds: Commands,
     keys: Res<Input<KeyCode>>,
-    palette: Option<Res<Palette>>,
+    palette: Res<Palette>,
     mut images: ResMut<Assets<Image>>,
-    tiles: Option<Res<Tiles>>,
+    tiles: Res<Tiles>,
+    materials: Res<Materials>,
     storage: StorageAccess,
     tiles_pos: Query<(&TilePos, &TileTextureIndex, &TileFlip)>,
 ) {
@@ -34,42 +37,43 @@ pub fn render_map_images(
         return;
     }
 
-    let Some(tiles) = tiles else {
-        return;
-    };
-    let Some(palette) = palette else {
-        return;
-    };
-    let Some((_, size)) = storage.transform_size(Layer::World) else {
+    let Some((_, map_size)) = storage.transform_size(Layer::World) else {
         return;
     };
 
-    let map_width = size.x as usize;
-    let map_height = size.y as usize;
+    let map_width = map_size.x as usize;
+    let map_height = map_size.y as usize;
 
     let width = map_width * TILE_SIZE;
     let height = map_height * TILE_SIZE;
     let texture_format_size = 4; // 4 channels each a u8
-    let size = Extent3d {
-        width: width as u32,
-        height: height as u32,
-        ..default()
-    };
-    let dimension = TextureDimension::D2;
 
     // TODO make this work for different sized tiles
     let mut map_images = Vec::new();
     let tile = tiles.0.get("small_stone").unwrap();
+    let material = materials.0.get("standard").unwrap();
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
-        let mapp = storage.storage(*layer).unwrap();
+        let map = storage.storage(*layer).unwrap();
         for sub_layer in 0..10 {
             let mut data: Vec<u8> = vec![0; (texture_format_size * width * height) as usize];
-            for (pos, id, flip) in mapp.iter().filter_map(|tile_entity| {
+            for (pos, id, flip) in map.iter().filter_map(|tile_entity| {
                 let Some(tile_entity) = tile_entity else {
                     return None;
                 };
                 tiles_pos.get(*tile_entity).ok()
             }) {
+                let neighbors = Neighbors::get_square_neighboring_positions(pos, map_size, true);
+                use SquareDirection::*;
+                let directions: [SquareDirection; 9] = [
+                    West, NorthWest, North, NorthEast, East, SouthEast, South, SouthWest, West,
+                ];
+                let neighbors: Vec<bool> = directions
+                    .iter()
+                    .map(|dir| match neighbors.get(*dir) {
+                        Some(npos) => map.get(npos).is_some(),
+                        None => false,
+                    })
+                    .collect();
                 let (x, y) = (pos.x as usize, map_height - pos.y as usize - 1);
                 let start = (x + y * width) * TILE_SIZE;
 
@@ -86,21 +90,24 @@ pub fn render_map_images(
                             d[idx + 2] = b;
                             d[idx + 3] = a;
                         };
-                        let dir = tile.get_pixel(sub_layer, rpos) as usize;
-                        let color = palette.get_sun_color(dir, sub_layer, l);
+                        let dir = material.get_pixel(sub_layer, rpos, &neighbors) as usize;
+                        // let dir = tile.get_pixel(sub_layer, rpos) as usize;
+                        let color = palette.get_shade_color(dir, sub_layer, l);
                         set_color(&mut data, color, wpos);
                     });
             }
 
-            let image = Image::new(size, dimension, data, TextureFormat::Rgba8Unorm);
+            let image_size = Extent3d {
+                width: width as u32,
+                height: height as u32,
+                ..default()
+            };
+            let dimension = TextureDimension::D2;
+            let image = Image::new(image_size, dimension, data, TextureFormat::Rgba8Unorm);
             let handle = images.add(image);
 
             let offset = Vec2::splat(0.5);
-            let layer = match l {
-                2 => 10,
-                x => x,
-            } as f32;
-            let pos = (offset * 10.).extend(-10.) * layer;
+            let pos = (offset * 10.).extend(-10.) * l as f32;
             cmds.spawn(SpriteBundle {
                 texture: handle.clone(),
                 transform: Transform::from_translation(
@@ -115,7 +122,6 @@ pub fn render_map_images(
     cmds.insert_resource(MapImages {
         images: map_images,
         offset: Vec2::splat(0.5),
-        layer_offset: [0., 1., 10.],
     });
 }
 
