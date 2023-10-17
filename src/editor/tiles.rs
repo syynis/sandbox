@@ -7,6 +7,7 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 pub const BASE_TILE_SIZE: usize = 20;
+pub const HALF_TILE_SIZE: usize = BASE_TILE_SIZE / 2;
 
 #[derive(Default, Reflect, Copy, Clone)]
 pub enum TilePixel {
@@ -49,16 +50,23 @@ pub struct Material {
 pub struct Neighbors(pub [bool; 8]);
 
 impl Material {
-    pub fn get_from_neighbors(&self, neighbors: Neighbors) -> Tile {
-        let tl = self.sub_tiles[0].get(&neighbors.0[0..=2]);
-        let tr = self.sub_tiles[1].get(&neighbors.0[2..=4]);
-        let br = self.sub_tiles[2].get(&neighbors.0[4..=6]);
-        let br = self.sub_tiles[2].get(&neighbors.0[6..=8]);
-        Tile {
-            layers: Vec::new(),
-            computed_tile_layers: vec![0; 10],
-            size: UVec2::new(1, 1),
-        }
+    pub fn get_pixel(&self, sub_layer: usize, rpos: usize, neighbors: &Neighbors) -> TilePixel {
+        let (x, y) = (rpos % BASE_TILE_SIZE, rpos / BASE_TILE_SIZE);
+        let quadrant = match (x, y) {
+            ((0..=9), (0..=9)) => 0,     // Top left
+            ((10..=19), (0..=9)) => 1,   // Top right
+            ((10..=19), (10..=19)) => 2, // Bottom right
+            ((0..=9), (10..=19)) => 3,   // Bottom left
+            _ => unreachable!(),
+        };
+
+        let x = if x > 9 { x - 10 } else { x };
+        let y = if y > 9 { y - 10 } else { y };
+        let idx = x + y * BASE_TILE_SIZE / 2;
+
+        self.sub_tiles[quadrant]
+            .get(&neighbors.0[(quadrant * 2)..=(quadrant * 2 + 2)])
+            .colors[idx]
     }
 }
 
@@ -69,9 +77,9 @@ pub struct Tile {
 }
 
 impl Tile {
-    pub fn get_pixel(&self, sub_layer: usize, pos: usize) -> TilePixel {
+    pub fn get_pixel(&self, sub_layer: usize, rpos: usize) -> TilePixel {
         let tile_layer = self.computed_tile_layers[sub_layer];
-        self.layers[tile_layer].colors[pos].clone()
+        self.layers[tile_layer].colors[rpos].clone()
     }
 }
 
@@ -189,7 +197,6 @@ pub fn load_tiles(
 
         if meta.is_material {
             let material_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
-            let half_tile_size = BASE_TILE_SIZE / 2;
             let res: Vec<SubTile> = tile_image
                 .data
                 .chunks(4)
@@ -204,20 +211,20 @@ pub fn load_tiles(
                     }
                 })
                 .collect::<Vec<TilePixel>>()
-                .chunks(half_tile_size.pow(2) * material_rows)
+                .chunks(HALF_TILE_SIZE.pow(2) * material_rows)
                 .map(|row| {
                     SubTile(
                         (0..material_rows)
                             .map(|r| {
-                                let start = r * half_tile_size;
+                                let start = r * HALF_TILE_SIZE;
                                 TileLayer {
-                                    colors: (0..half_tile_size)
+                                    colors: (0..HALF_TILE_SIZE)
                                         .flat_map(move |vy| {
-                                            (0..half_tile_size).map(move |vx| (vx, vy))
+                                            (0..HALF_TILE_SIZE).map(move |vx| (vx, vy))
                                         })
                                         .map(|(vx, vy)| {
                                             let wpos =
-                                                start + vx + vy * half_tile_size * material_rows;
+                                                start + vx + vy * HALF_TILE_SIZE * material_rows;
                                             row[wpos]
                                         })
                                         .collect(),
