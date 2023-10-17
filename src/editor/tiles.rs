@@ -43,7 +43,7 @@ impl SubTile {
 
 pub struct Material {
     // 0: NW, 1: NE, 2: SE, 3: SW
-    pub sub_tiles: Vec<SubTile>,
+    sub_tiles: Vec<SubTile>,
 }
 
 pub struct Neighbors(pub [bool; 8]);
@@ -190,7 +190,7 @@ pub fn load_tiles(
         if meta.is_material {
             let material_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
             let half_tile_size = BASE_TILE_SIZE / 2;
-            let res: Vec<Vec<TileLayer>> = tile_image
+            let res: Vec<SubTile> = tile_image
                 .data
                 .chunks(4)
                 .map(|pixel| {
@@ -206,20 +206,25 @@ pub fn load_tiles(
                 .collect::<Vec<TilePixel>>()
                 .chunks(half_tile_size.pow(2) * material_rows)
                 .map(|row| {
-                    (0..material_rows)
-                        .map(|r| {
-                            let start = r * half_tile_size;
-                            TileLayer {
-                                colors: (0..half_tile_size)
-                                    .flat_map(move |vy| (0..half_tile_size).map(move |vx| (vx, vy)))
-                                    .map(|(vx, vy)| {
-                                        let wpos = start + vx + vy * half_tile_size * material_rows;
-                                        row[wpos]
-                                    })
-                                    .collect(),
-                            }
-                        })
-                        .collect::<Vec<TileLayer>>()
+                    SubTile(
+                        (0..material_rows)
+                            .map(|r| {
+                                let start = r * half_tile_size;
+                                TileLayer {
+                                    colors: (0..half_tile_size)
+                                        .flat_map(move |vy| {
+                                            (0..half_tile_size).map(move |vx| (vx, vy))
+                                        })
+                                        .map(|(vx, vy)| {
+                                            let wpos =
+                                                start + vx + vy * half_tile_size * material_rows;
+                                            row[wpos]
+                                        })
+                                        .collect(),
+                                }
+                            })
+                            .collect::<Vec<TileLayer>>(),
+                    )
                 })
                 .collect();
             let material = Material { sub_tiles: res };
