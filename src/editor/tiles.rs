@@ -6,8 +6,8 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const BASE_TILE_SIZE: usize = 20;
-pub const HALF_TILE_SIZE: usize = BASE_TILE_SIZE / 2;
+pub const TILE_SIZE: usize = 20;
+pub const HALF_TILE_SIZE: usize = TILE_SIZE / 2;
 
 #[derive(Default, Reflect, Copy, Clone)]
 pub enum TilePixel {
@@ -51,7 +51,7 @@ pub struct Neighbors(pub [bool; 8]);
 
 impl Material {
     pub fn get_pixel(&self, sub_layer: usize, rpos: usize, neighbors: &Neighbors) -> TilePixel {
-        let (x, y) = (rpos % BASE_TILE_SIZE, rpos / BASE_TILE_SIZE);
+        let (x, y) = (rpos % TILE_SIZE, rpos / TILE_SIZE);
         let quadrant = match (x, y) {
             ((0..=9), (0..=9)) => 0,     // Top left
             ((10..=19), (0..=9)) => 1,   // Top right
@@ -62,7 +62,7 @@ impl Material {
 
         let x = if x > 9 { x - 10 } else { x };
         let y = if y > 9 { y - 10 } else { y };
-        let idx = x + y * BASE_TILE_SIZE / 2;
+        let idx = x + y * TILE_SIZE / 2;
 
         self.sub_tiles[quadrant]
             .get(&neighbors.0[(quadrant * 2)..=(quadrant * 2 + 2)])
@@ -253,7 +253,7 @@ pub fn load_tiles(
                         }
                     })
                     .collect::<Vec<TilePixel>>()
-                    .chunks(BASE_TILE_SIZE.pow(2) * (meta.size.x * meta.size.y) as usize)
+                    .chunks(TILE_SIZE.pow(2) * (meta.size.x * meta.size.y) as usize)
                     .map(|chunk| TileLayer {
                         colors: chunk.to_vec(),
                     })
