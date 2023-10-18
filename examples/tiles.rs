@@ -10,8 +10,10 @@ use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_xpbd_2d::math::Vector;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
-use sandbox::editor::render::clear_map;
+use sandbox::editor::render::display_images;
 use sandbox::editor::render::render_map_images;
+use sandbox::editor::render::setup_display;
+use sandbox::editor::render::MapImages;
 use sandbox::editor::tools::area::AreaTool;
 use sandbox::editor::tools::erase::EraseTool;
 use sandbox::editor::tools::paint::PaintTool;
@@ -74,7 +76,7 @@ fn main() {
     app.register_type::<EditorState>();
 
     app.add_event::<EditorEvent>().add_event::<PickerEvent>();
-    app.add_systems(Startup, (setup, load_egui_icons));
+    app.add_systems(Startup, (setup, load_egui_icons, setup_display));
     app.add_systems(
         Update,
         (
@@ -94,13 +96,16 @@ fn main() {
             respawn_player,
             draw_look_dir,
             spawn_rock,
-            clear_map,
         ),
     );
 
     app.add_systems(
         Update,
-        (render_map_images).run_if(in_state(AppState::Display)),
+        (
+            render_map_images,
+            display_images.run_if(resource_exists::<MapImages>()),
+        )
+            .run_if(in_state(AppState::Display)),
     );
     app.run();
 }

@@ -150,6 +150,7 @@ pub enum EditorActions {
     New,
     Save,
     SaveAs,
+    ReloadMapDisplay,
 }
 
 #[derive(Debug, Clone, Event)]

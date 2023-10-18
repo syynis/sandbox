@@ -6,6 +6,7 @@ use bevy_ecs_tilemap::{
     helpers::square_grid::neighbors::{Neighbors, SquareDirection, SQUARE_DIRECTIONS},
     tiles::{TileFlip, TilePos, TileTextureIndex},
 };
+use leafwing_input_manager::prelude::ActionState;
 
 use crate::level::{
     layer::{Layer, ALL_LAYERS},
@@ -15,6 +16,7 @@ use crate::level::{
 use super::{
     palette::Palette,
     tiles::{Materials, Tiles, TILE_SIZE},
+    EditorActions,
 };
 
 #[derive(Resource)]
@@ -25,21 +27,30 @@ pub struct MapImages {
 
 pub fn render_map_images(
     mut cmds: Commands,
-    keys: Res<Input<KeyCode>>,
     palette: Res<Palette>,
     mut images: ResMut<Assets<Image>>,
     tiles: Res<Tiles>,
     materials: Res<Materials>,
     storage: StorageAccess,
     tiles_pos: Query<(&TilePos, &TileTextureIndex, &TileFlip)>,
+    map_images: Option<ResMut<MapImages>>,
+    editor_actions: Query<&ActionState<EditorActions>>,
 ) {
-    if !keys.just_pressed(KeyCode::Z) {
+    let Ok(editor_actions) = editor_actions.get_single() else {
+        return;
+    };
+    if !editor_actions.just_pressed(EditorActions::ReloadMapDisplay) {
         return;
     }
-
     let Some((_, map_size)) = storage.transform_size(Layer::World) else {
         return;
     };
+
+    if let Some(map_images) = map_images {
+        for handle in &map_images.images {
+            images.remove(handle);
+        }
+    }
 
     let map_width = map_size.x as usize;
     let map_height = map_size.y as usize;
@@ -51,7 +62,7 @@ pub fn render_map_images(
     // TODO make this work for different sized tiles
     let mut map_images = Vec::new();
     let tile = tiles.0.get("small_stone").unwrap();
-    let material = materials.0.get("standard").unwrap();
+    let material = materials.0.get("frame").unwrap();
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
         let map = storage.storage(*layer).unwrap();
         for sub_layer in 0..10 {
@@ -105,17 +116,6 @@ pub fn render_map_images(
             let dimension = TextureDimension::D2;
             let image = Image::new(image_size, dimension, data, TextureFormat::Rgba8Unorm);
             let handle = images.add(image);
-
-            let offset = Vec2::splat(0.5);
-            let pos = (offset * 10.).extend(-10.) * l as f32;
-            cmds.spawn(SpriteBundle {
-                texture: handle.clone(),
-                transform: Transform::from_translation(
-                    Vec3::new(0., 1000., 0.) + pos + offset.extend(-1.) * sub_layer as f32,
-                ),
-                ..default()
-            });
-
             map_images.push(handle);
         }
     }
@@ -125,16 +125,42 @@ pub fn render_map_images(
     });
 }
 
-pub fn clear_map(world: &mut World) {
-    let pressed = world.resource::<Input<KeyCode>>().just_pressed(KeyCode::A);
-    if pressed {
-        world.resource_scope(|world, state: Mut<MapImages>| {
-            let mut images = world.resource_mut::<Assets<Image>>();
-            for handle in &state.images {
-                images.remove(handle);
-            }
-        });
+#[derive(Component)]
+pub struct MapDisplay;
+pub fn setup_display(mut cmds: Commands) {
+    cmds.spawn((
+        MapDisplay,
+        SpatialBundle {
+            transform: Transform::from_translation(Vec3::new(0., 1000., 0.)),
+            ..default()
+        },
+    ));
+}
 
-        world.remove_resource::<MapImages>();
+pub fn display_images(
+    mut cmds: Commands,
+    map_display: Query<Entity, With<MapDisplay>>,
+    map_images: Res<MapImages>,
+) {
+    let Ok(entity) = map_display.get_single() else {
+        return;
+    };
+    if map_images.is_changed() {
+        cmds.entity(entity).despawn_descendants();
+        let offset = map_images.offset;
+        for (idx, image) in map_images.images.iter().enumerate() {
+            let l = idx / 10;
+            let sub_layer = idx % 10;
+            let pos = (offset * 10.).extend(-10.) * l as f32;
+            cmds.entity(entity).with_children(|child_builder| {
+                child_builder.spawn(SpriteBundle {
+                    texture: image.clone(),
+                    transform: Transform::from_translation(
+                        pos + offset.extend(-1.) * sub_layer as f32,
+                    ),
+                    ..default()
+                });
+            });
+        }
     }
 }
