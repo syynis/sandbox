@@ -3,7 +3,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use bevy_ecs_tilemap::{
-    helpers::square_grid::neighbors::{Neighbors, SquareDirection, SQUARE_DIRECTIONS},
+    helpers::square_grid::neighbors::{Neighbors, SquareDirection},
     tiles::{TileFlip, TilePos, TileTextureIndex},
 };
 use leafwing_input_manager::prelude::ActionState;
@@ -58,6 +58,7 @@ pub fn render_map_images(
 
     let width = map_width * TILE_SIZE;
     let height = map_height * TILE_SIZE;
+    let center = Vec2::new(width as f32 / 2., height as f32 / 2.);
     let texture_format_size = 4; // 4 channels each a u8
 
     // TODO make this work for different sized tiles
@@ -87,13 +88,25 @@ pub fn render_map_images(
                     })
                     .collect();
                 let (x, y) = (pos.x as usize, map_height - pos.y as usize - 1);
-                let start = (x + y * width) * TILE_SIZE;
+                let tile_start = (x + y * width) * TILE_SIZE;
+                let tile_center = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * TILE_SIZE as f32;
+
+                let base_offset = (tile_center - center) / center * Vec2::new(0.7, 1.2);
+                let layer_offset = base_offset * 10. * l as f32;
+                let offset = layer_offset + base_offset * sub_layer as f32;
+                let offset_rounded = -offset.round();
+                let offset_x = offset_rounded.x as i32;
+                let offset_y = offset_rounded.y as i32;
+                let offset_idx = offset_x + offset_y * TILE_SIZE as i32 * map_width as i32;
+                let tile_start = tile_start as i32 + offset_idx;
+                let tile_start = tile_start as usize;
 
                 (0..TILE_SIZE)
-                    .flat_map(move |vy| (0..TILE_SIZE).map(move |vx| (vx, vy)))
-                    .for_each(|(vx, vy)| {
-                        let rpos = vx + vy * TILE_SIZE;
-                        let wpos = (start + vx + vy * TILE_SIZE * map_width) * texture_format_size;
+                    .flat_map(move |ty| (0..TILE_SIZE).map(move |tx| (tx, ty)))
+                    .for_each(|(tx, ty)| {
+                        let rpos = tx + ty * TILE_SIZE;
+                        let wpos =
+                            (tile_start + tx + ty * TILE_SIZE * map_width) * texture_format_size;
 
                         let set_color = |d: &mut [u8], color: Color, idx: usize| {
                             let [r, g, b, a] = color.as_rgba_u8();
@@ -103,8 +116,19 @@ pub fn render_map_images(
                             d[idx + 3] = a;
                         };
                         let dir = material.get_pixel(sub_layer, rpos, &neighbors) as usize;
+
                         // let dir = tile.get_pixel(sub_layer, rpos) as usize;
                         let color = palette.get_shade_color(dir, sub_layer, l);
+                        /*
+                        For debugging
+                        let color = match dir {
+                            0 => Color::BLUE,
+                            1 => Color::GREEN,
+                            2 => Color::RED,
+                            3 => Color::NONE,
+                            _ => unreachable!(),
+                        };
+                        */
                         set_color(&mut data, color, wpos);
                     });
             }
@@ -148,16 +172,13 @@ pub fn display_images(
     };
     if map_images.is_changed() {
         cmds.entity(entity).despawn_descendants();
-        let offset = map_images.offset;
         for (idx, image) in map_images.images.iter().enumerate() {
-            let l = idx / 10;
             let sub_layer = idx % 10;
-            let pos = (offset * 10.).extend(-10.) * l as f32;
             cmds.entity(entity).with_children(|child_builder| {
                 child_builder.spawn(SpriteBundle {
                     texture: image.clone(),
                     transform: Transform::from_translation(
-                        pos + offset.extend(-1.) * sub_layer as f32,
+                        Vec2::ZERO.extend(-1.) * sub_layer as f32,
                     ),
                     ..default()
                 });
