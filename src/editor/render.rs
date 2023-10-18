@@ -19,7 +19,8 @@ use super::{
     EditorActions,
 };
 
-#[derive(Resource)]
+#[derive(Default, Resource, Reflect)]
+#[reflect(Resource)]
 pub struct MapImages {
     pub images: Vec<Handle<Image>>,
     pub offset: Vec2,

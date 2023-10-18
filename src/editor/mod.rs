@@ -15,6 +15,7 @@ use crate::level::layer::Layer;
 
 use self::{
     palette::{load_palette_image, parse_palette_image, Palette, PaletteHandle},
+    render::MapImages,
     tiles::{
         load_manifests, load_tile_images, load_tiles, Manifests, Materials, TileManifest, Tiles,
     },
@@ -26,6 +27,8 @@ pub struct EditorPlugin;
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(RonAssetPlugin::<TileManifest>::new(&["manifest.ron"]));
+
+        app.register_type::<MapImages>();
 
         app.add_state::<AppState>();
         app.init_resource::<EditorState>();

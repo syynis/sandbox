@@ -177,6 +177,7 @@ fn editor_actions_map() -> InputMap<EditorActions> {
     input_map.insert(KeyCode::C, CycleTool);
     input_map.insert(KeyCode::L, Load);
     input_map.insert(KeyCode::T, CycleToolMode);
+    input_map.insert(KeyCode::Z, ReloadMapDisplay);
 
     input_map.insert_modified(Modifier::Control, MouseButton::Left, EditorActions::Area);
     input_map.insert_modified(Modifier::Shift, KeyCode::C, EditorActions::CycleLayer);
