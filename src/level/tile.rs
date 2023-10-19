@@ -32,6 +32,14 @@ impl TileKind {
         matches!(self, TileKind::Platform)
     }
 
+    pub fn is_solid(&self) -> bool {
+        matches!(self, TileKind::Square)
+    }
+
+    pub fn is_slope(&self) -> bool {
+        matches!(self, TileKind::Slope)
+    }
+
     pub fn offset(&self) -> Vector {
         use TileKind::*;
         match self {
