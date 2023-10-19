@@ -120,7 +120,6 @@ pub fn render_map_images(
                         // let dir = tile.get_pixel(sub_layer, rpos) as usize;
                         let color = palette.get_shade_color(dir, sub_layer, l);
                         /*
-                        For debugging
                         let color = match dir {
                             0 => Color::BLUE,
                             1 => Color::GREEN,
@@ -174,11 +173,12 @@ pub fn display_images(
         cmds.entity(entity).despawn_descendants();
         for (idx, image) in map_images.images.iter().enumerate() {
             let sub_layer = idx % 10;
+            let layer = idx / 10;
             cmds.entity(entity).with_children(|child_builder| {
                 child_builder.spawn(SpriteBundle {
                     texture: image.clone(),
                     transform: Transform::from_translation(
-                        Vec2::ZERO.extend(-1.) * sub_layer as f32,
+                        Vec3::NEG_Z * sub_layer as f32 + Vec3::NEG_Z * (10 * layer) as f32,
                     ),
                     ..default()
                 });
