@@ -115,7 +115,7 @@ pub fn render_map_images(
                             d[idx + 2] = b;
                             d[idx + 3] = a;
                         };
-                        let dir = material.get_pixel(sub_layer, rpos, &neighbors) as usize;
+                        let dir = material.block.get_pixel(sub_layer, rpos, &neighbors) as usize;
 
                         // let dir = tile.get_pixel(sub_layer, rpos) as usize;
                         let color = palette.get_shade_color(dir, sub_layer, l);

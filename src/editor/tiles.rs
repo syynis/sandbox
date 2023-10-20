@@ -4,6 +4,7 @@ use bevy::{
     reflect::{TypePath, TypeUuid},
     utils::hashbrown::HashMap,
 };
+use bevy_ecs_tilemap::tiles::TileFlip;
 use serde::{Deserialize, Serialize};
 
 pub const TILE_SIZE: usize = 20;
@@ -47,14 +48,21 @@ impl SubTile {
 }
 
 pub struct Material {
+    pub block: BlockMaterial,
+    pub slope: SlopeMaterial,
+}
+
+pub struct BlockMaterial {
     // 0: NW, 1: NE, 2: SE, 3: SW
     sub_tiles: Vec<SubTile>,
     computed_tile_layers: Vec<usize>,
 }
 
-impl Material {
+impl BlockMaterial {
     pub fn get_pixel(&self, sub_layer: usize, rpos: usize, neighbors: &Vec<bool>) -> TilePixel {
-        let tile_layer = self.computed_tile_layers.get(sub_layer);
+        let Some(tile_layer) = self.computed_tile_layers.get(sub_layer) else {
+            return TilePixel::Neutral;
+        };
         let (x, y) = (rpos % TILE_SIZE, rpos / TILE_SIZE);
 
         let quadrant = match (x, y) {
@@ -69,11 +77,73 @@ impl Material {
         let y = if y > 9 { y - 10 } else { y };
         let idx = x + y * TILE_SIZE / 2;
 
-        tile_layer.map_or(TilePixel::Neutral, |layer| {
-            self.sub_tiles[quadrant]
-                .get(&neighbors[(quadrant * 2)..=(quadrant * 2 + 2)])
-                .colors[idx]
-        })
+        self.sub_tiles[quadrant]
+            .get(&neighbors[(quadrant * 2)..=(quadrant * 2 + 2)])
+            .colors[idx]
+    }
+}
+
+pub struct SlopeMaterial {
+    sub_tiles: Vec<Vec<TileLayer>>,
+    computed_tile_layers: Vec<usize>,
+}
+
+impl SlopeMaterial {
+    pub fn get_pixel(
+        &self,
+        sub_layer: usize,
+        rpos: usize,
+        flip: TileFlip,
+        neighbors: &Vec<bool>, // Always 2
+    ) -> TilePixel {
+        let Some(tile_layer) = self.computed_tile_layers.get(sub_layer) else {
+            return TilePixel::Neutral;
+        };
+        let (x, y) = (rpos % TILE_SIZE, rpos / TILE_SIZE);
+        let idx = x + y * TILE_SIZE;
+
+        let row = match (flip.x, flip.y) {
+            (false, false) => 0,
+            (true, false) => 1,
+            (false, true) => 2,
+            (true, true) => 3,
+        };
+
+        let quadrant = match (neighbors[0], neighbors[1]) {
+            (false, false) => (0, 2),
+            (true, true) => (1, 3),
+            (true, false) => {
+                if row % 2 == 0 {
+                    (1, 2)
+                } else {
+                    (0, 4)
+                }
+            }
+            (false, true) => {
+                if row % 2 == 0 {
+                    (0, 4)
+                } else {
+                    (1, 2)
+                }
+            }
+        };
+
+        let res1 = self.sub_tiles[row][quadrant.0].colors[idx];
+        let res2 = self.sub_tiles[row][quadrant.1].colors[idx];
+        let res = if matches!(res1, TilePixel::None) {
+            res2
+        } else if matches!(res2, TilePixel::None) {
+            res1
+        } else {
+            TilePixel::None
+        };
+
+        // Only one of the quadrants is colored or both are transparent
+        match (res1, res2) {
+            (p, TilePixel::None) => p,
+            (TilePixel::None, p) => p,
+            (_, _) => unreachable!(),
+        }
     }
 }
 
@@ -94,25 +164,56 @@ impl Tile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Meta {
+    TileMeta(TileMeta),
+    MaterialMeta(MaterialMeta),
+}
+
+impl Meta {
+    pub fn name(&self) -> String {
+        match self {
+            Meta::TileMeta(meta) => meta.name.clone(),
+            Meta::MaterialMeta(meta) => meta.name.clone(),
+        }
+    }
+
+    pub fn layer_repeats(&self) -> &Vec<usize> {
+        match self {
+            Meta::TileMeta(meta) => &meta.layer_repeats,
+            Meta::MaterialMeta(meta) => &meta.layer_repeats,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TileMeta {
     pub name: String,
     pub size: UVec2,
     pub layer_repeats: Vec<usize>,
-    pub is_material: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterialMeta {
+    pub name: String,
+    pub name_slope: String,
+    pub layer_repeats: Vec<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TypeUuid, TypePath)]
 #[uuid = "a4da6acf-87fc-465c-bbf3-7af7f49ef0fd"]
-pub struct TileManifest {
+pub struct Manifest {
     pub name: String,
-    pub tiles: Vec<TileMeta>,
+    pub tiles: Vec<Meta>,
 }
 
 #[derive(Default, Resource)]
-pub struct Manifests(pub Vec<Handle<TileManifest>>);
+pub struct Manifests(pub Vec<Handle<Manifest>>);
 
 #[derive(Default, Resource)]
-pub struct TileImages(pub HashMap<String, (Handle<Image>, TileMeta)>);
+pub struct TileImages(pub HashMap<String, (Handle<Image>, Meta)>);
+
+#[derive(Default, Resource)]
+pub struct MaterialImages(pub HashMap<String, (Vec<Handle<Image>>, Meta)>);
 
 #[derive(Default, Resource)]
 pub struct Tiles(pub HashMap<String, Tile>);
@@ -121,14 +222,14 @@ pub struct Tiles(pub HashMap<String, Tile>);
 pub struct Materials(pub HashMap<String, Material>);
 
 pub fn load_manifests(asset_server: Res<AssetServer>, mut manifests: ResMut<Manifests>) {
-    let stone_manifest: Handle<TileManifest> = asset_server.load("tiles/stones.manifest.ron");
+    let stone_manifest: Handle<Manifest> = asset_server.load("tiles/stones.manifest.ron");
     manifests.0.push(stone_manifest);
 }
 
 pub fn load_tile_images(
     mut cmds: Commands,
     asset_server: Res<AssetServer>,
-    manifests: Res<Assets<TileManifest>>,
+    manifests: Res<Assets<Manifest>>,
     manifest_handles: Res<Manifests>,
     mut loaded: Local<bool>,
 ) {
@@ -147,30 +248,50 @@ pub fn load_tile_images(
     }
     *loaded = true;
 
-    let mut tiles: HashMap<String, (Handle<Image>, TileMeta)> = HashMap::new();
+    let mut tiles: HashMap<String, (Handle<Image>, Meta)> = HashMap::new();
+    let mut materials: HashMap<String, (Vec<Handle<Image>>, Meta)> = HashMap::new();
     for manifest_handle in manifest_handles.0.iter() {
         let Some(manifest) = manifests.get(manifest_handle) else {
             continue;
         };
 
         for meta in manifest.tiles.iter() {
-            let tile_image: Handle<Image> =
-                asset_server.load("tiles/".to_owned() + &manifest.name + "/" + &meta.name + ".png");
-            tiles.insert(meta.name.clone(), (tile_image, meta.clone()));
+            let load = |name: &String| -> Handle<Image> {
+                asset_server.load("tiles/".to_owned() + &manifest.name + "/" + &name + ".png")
+            };
+            match meta {
+                Meta::TileMeta(tile) => {
+                    let handle = load(&tile.name);
+                    tiles.insert(tile.name.clone(), (handle, meta.clone()));
+                }
+                Meta::MaterialMeta(material) => {
+                    let handle = load(&material.name);
+                    let handle_slope = load(&material.name_slope);
+                    materials.insert(
+                        material.name.clone(),
+                        (vec![handle, handle_slope], meta.clone()),
+                    );
+                }
+            };
         }
     }
 
     cmds.insert_resource(TileImages(tiles));
+    cmds.insert_resource(MaterialImages(materials));
 }
 
 pub fn load_tiles(
     mut cmds: Commands,
     asset_server: Res<AssetServer>,
     tile_images: Option<Res<TileImages>>,
+    material_images: Option<Res<MaterialImages>>,
     images: Res<Assets<Image>>,
     mut loaded: Local<bool>,
 ) {
     let Some(tile_images) = tile_images else {
+        return;
+    };
+    let Some(material_images) = material_images else {
         return;
     };
 
@@ -184,19 +305,32 @@ pub fn load_tiles(
             _ => false,
         };
 
-    if *loaded || !tiles_loaded {
+    let materials_loaded = match asset_server.get_group_load_state(
+        material_images
+            .0
+            .values()
+            .flat_map(|v| v.0.iter().map(|handle| handle.id())),
+    ) {
+        LoadState::Loaded => true,
+        LoadState::Failed => {
+            bevy::log::error!("Failed to load tile asset");
+            false
+        }
+        _ => false,
+    };
+
+    if *loaded || !tiles_loaded || !materials_loaded {
         return;
     }
     *loaded = true;
 
     let mut tiles: HashMap<String, Tile> = HashMap::new();
     let mut materials: HashMap<String, Material> = HashMap::new();
-    for (name, (handle, meta)) in tile_images.0.iter() {
-        let tile_image = images.get(handle).unwrap();
 
+    for (name, (handle, meta)) in tile_images.0.iter() {
         let get_tile_layer = |sub_layer: usize| -> usize {
             let mut unrolled = Vec::new();
-            for (idx, e) in meta.layer_repeats.iter().enumerate() {
+            for (idx, e) in meta.layer_repeats().iter().enumerate() {
                 (0..*e).for_each(|_| {
                     unrolled.push(idx);
                 })
@@ -204,58 +338,69 @@ pub fn load_tiles(
             let tile_layer = unrolled[sub_layer];
             tile_layer
         };
-        let computed_tile_layers = (0..meta.layer_repeats.iter().sum())
+        let computed_tile_layers = (0..meta.layer_repeats().iter().sum())
             .map(|idx| get_tile_layer(idx))
             .collect();
-        if meta.is_material {
-            let material_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
-            let res: Vec<SubTile> = tile_image
-                .data
-                .chunks(4)
-                .map(|pixel| {
-                    let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
-                    match (r, g, b, a) {
-                        (0, 0, 0, 0) => TilePixel::None,
-                        (255, 0, 0, 255) => TilePixel::Up,
-                        (0, 255, 0, 255) => TilePixel::Neutral,
-                        (0, 0, 255, 255) => TilePixel::Down,
-                        _ => unreachable!(),
-                    }
-                })
-                .collect::<Vec<TilePixel>>()
-                .chunks(HALF_TILE_SIZE.pow(2) * material_rows)
-                .enumerate()
-                .map(|(quadrant, row)| SubTile {
-                    quadrant,
-                    data: (0..material_rows)
-                        .map(|r| {
-                            let start = r * HALF_TILE_SIZE;
-                            TileLayer {
-                                colors: (0..HALF_TILE_SIZE)
-                                    .flat_map(move |vy| (0..HALF_TILE_SIZE).map(move |vx| (vx, vy)))
-                                    .map(|(vx, vy)| {
-                                        let wpos = start + vx + vy * HALF_TILE_SIZE * material_rows;
-                                        row[wpos]
-                                    })
-                                    .collect(),
+        match meta {
+            Meta::TileMeta(meta) => {
+                let tile_image = images.get(handle).unwrap();
+                let tile = Tile {
+                    layers: tile_image
+                        .data
+                        .chunks(4)
+                        .map(|color_data| {
+                            let (r, g, b, a) =
+                                (color_data[0], color_data[1], color_data[2], color_data[3]);
+                            match (r, g, b, a) {
+                                (0, 0, 0, 0) => TilePixel::None,
+                                (255, 0, 0, 255) => TilePixel::Up,
+                                (0, 255, 0, 255) => TilePixel::Neutral,
+                                (0, 0, 255, 255) => TilePixel::Down,
+                                _ => unreachable!(),
                             }
                         })
-                        .collect::<Vec<TileLayer>>(),
+                        .collect::<Vec<TilePixel>>()
+                        .chunks(TILE_SIZE.pow(2) * (meta.size.x * meta.size.y) as usize)
+                        .map(|chunk| TileLayer {
+                            colors: chunk.to_vec(),
+                        })
+                        .collect(),
+                    computed_tile_layers,
+                    size: meta.size,
+                };
+                tiles.insert(name.clone(), tile);
+            }
+            _ => {}
+        }
+    }
+
+    for (name, (handles, meta)) in material_images.0.iter() {
+        let get_tile_layer = |sub_layer: usize| -> usize {
+            let mut unrolled = Vec::new();
+            for (idx, e) in meta.layer_repeats().iter().enumerate() {
+                (0..*e).for_each(|_| {
+                    unrolled.push(idx);
                 })
-                .collect();
-            let material = Material {
-                sub_tiles: res,
-                computed_tile_layers,
-            };
-            materials.insert(name.clone(), material);
-        } else {
-            let tile = Tile {
-                layers: tile_image
+            }
+            let tile_layer = unrolled[sub_layer];
+            tile_layer
+        };
+        let computed_tile_layers: Vec<usize> = (0..meta.layer_repeats().iter().sum())
+            .map(|idx| get_tile_layer(idx))
+            .collect();
+        match meta {
+            Meta::MaterialMeta(meta) => {
+                let material_images: Vec<&Image> = handles
+                    .iter()
+                    .map(|handle| images.get(handle).unwrap())
+                    .collect();
+                let block_image = material_images[0];
+                let material_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
+                let res: Vec<SubTile> = block_image
                     .data
                     .chunks(4)
-                    .map(|color_data| {
-                        let (r, g, b, a) =
-                            (color_data[0], color_data[1], color_data[2], color_data[3]);
+                    .map(|pixel| {
+                        let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
                         match (r, g, b, a) {
                             (0, 0, 0, 0) => TilePixel::None,
                             (255, 0, 0, 255) => TilePixel::Up,
@@ -265,15 +410,41 @@ pub fn load_tiles(
                         }
                     })
                     .collect::<Vec<TilePixel>>()
-                    .chunks(TILE_SIZE.pow(2) * (meta.size.x * meta.size.y) as usize)
-                    .map(|chunk| TileLayer {
-                        colors: chunk.to_vec(),
+                    .chunks(HALF_TILE_SIZE.pow(2) * material_rows)
+                    .enumerate()
+                    .map(|(quadrant, row)| SubTile {
+                        quadrant,
+                        data: (0..material_rows)
+                            .map(|r| {
+                                let start = r * HALF_TILE_SIZE;
+                                TileLayer {
+                                    colors: (0..HALF_TILE_SIZE)
+                                        .flat_map(move |vy| {
+                                            (0..HALF_TILE_SIZE).map(move |vx| (vx, vy))
+                                        })
+                                        .map(|(vx, vy)| {
+                                            let wpos =
+                                                start + vx + vy * HALF_TILE_SIZE * material_rows;
+                                            row[wpos]
+                                        })
+                                        .collect(),
+                                }
+                            })
+                            .collect::<Vec<TileLayer>>(),
                     })
-                    .collect(),
-                computed_tile_layers,
-                size: meta.size,
-            };
-            tiles.insert(name.clone(), tile);
+                    .collect();
+                let block = BlockMaterial {
+                    sub_tiles: res,
+                    computed_tile_layers: computed_tile_layers.clone(),
+                };
+                let slope = SlopeMaterial {
+                    sub_tiles: Vec::new(),
+                    computed_tile_layers,
+                };
+                let material = Material { block, slope };
+                materials.insert(name.clone(), material);
+            }
+            _ => {}
         }
     }
 

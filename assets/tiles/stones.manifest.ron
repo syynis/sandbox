@@ -1,37 +1,33 @@
 (
     name: "stone",
     tiles: [
-        (
+        TileMeta((
             name: "small_stone",
             size: (1, 1),
             layer_repeats: [
                 1,
             ],
-            is_material: false,
-        ),
-        (
+        )),
+        TileMeta((
             name: "brick",
             size: (1, 1),
             layer_repeats: [
                 1, 1, 8,
             ],
-            is_material: false,
-        ),
-        (
+        )),
+        MaterialMeta((
             name: "standard",
-            size: (1, 1),
+            name_slope: "standard",
             layer_repeats: [
                 1,
             ],
-            is_material: true,
-        ),
-        (
+        )),
+        MaterialMeta((
             name: "frame",
-            size: (1, 1),
+            name_slope: "frame_slope",
             layer_repeats: [
                 1,
             ],
-            is_material: true,
-        ),
+        )),
     ],
 )
