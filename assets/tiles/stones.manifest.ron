@@ -17,8 +17,11 @@
         )),
         MaterialMeta((
             name: "standard",
-            name_slope: "standard",
+            name_slope: "standard_slope",
             layer_repeats: [
+                1,
+            ],
+            layer_repeats_slope: [
                 1,
             ],
         )),
@@ -27,6 +30,9 @@
             name_slope: "frame_slope",
             layer_repeats: [
                 1,
+            ],
+            layer_repeats_slope: [
+                1, 9,
             ],
         )),
     ],

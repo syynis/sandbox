@@ -8,9 +8,13 @@ use bevy_ecs_tilemap::{
 };
 use leafwing_input_manager::prelude::ActionState;
 
-use crate::level::{
-    layer::{Layer, ALL_LAYERS},
-    placement::StorageAccess,
+use crate::{
+    editor::tiles::TilePixel,
+    level::{
+        layer::{Layer, ALL_LAYERS},
+        placement::StorageAccess,
+        tile::TileKind,
+    },
 };
 
 use super::{
@@ -64,7 +68,7 @@ pub fn render_map_images(
     // TODO make this work for different sized tiles
     let mut map_images = Vec::new();
     let tile = tiles.0.get("small_stone").unwrap();
-    let material = materials.0.get("frame").unwrap();
+    let material = materials.0.get("standard").unwrap();
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
         let map = storage.storage(*layer).unwrap();
         for sub_layer in 0..10 {
@@ -75,23 +79,11 @@ pub fn render_map_images(
                 };
                 tiles_pos.get(*tile_entity).ok()
             }) {
-                let neighbors = Neighbors::get_square_neighboring_positions(pos, map_size, true);
-                use SquareDirection::*;
-                let directions: [SquareDirection; 9] = [
-                    West, NorthWest, North, NorthEast, East, SouthEast, South, SouthWest, West,
-                ];
-                let neighbors: Vec<bool> = directions
-                    .iter()
-                    .map(|dir| match neighbors.get(*dir) {
-                        Some(npos) => map.get(npos).is_some(),
-                        None => false,
-                    })
-                    .collect();
                 let (x, y) = (pos.x as usize, map_height - pos.y as usize - 1);
                 let tile_start = (x + y * width) * TILE_SIZE;
                 let tile_center = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * TILE_SIZE as f32;
 
-                let base_offset = (tile_center - center) / center * Vec2::new(0.7, 1.2);
+                let base_offset = (tile_center - center) / center * Vec2::new(2., 2.);
                 let layer_offset = base_offset * 10. * l as f32;
                 let offset = layer_offset + base_offset * sub_layer as f32;
                 let offset_rounded = -offset.round();
@@ -115,10 +107,60 @@ pub fn render_map_images(
                             d[idx + 2] = b;
                             d[idx + 3] = a;
                         };
-                        let dir = material.block.get_pixel(sub_layer, rpos, &neighbors) as usize;
+                        let dir = match TileKind::from(*id) {
+                            TileKind::Square => {
+                                let neighbors = Neighbors::get_square_neighboring_positions(
+                                    pos, map_size, true,
+                                );
+                                use SquareDirection::*;
+                                let directions: [SquareDirection; 9] = [
+                                    West, NorthWest, North, NorthEast, East, SouthEast, South,
+                                    SouthWest, West,
+                                ];
+                                let neighbors: Vec<bool> = directions
+                                    .iter()
+                                    .map(|dir| match neighbors.get(*dir) {
+                                        Some(npos) => map.get(npos).is_some(),
+                                        None => false,
+                                    })
+                                    .collect();
+                                material.block.get_pixel(sub_layer, rpos, &neighbors)
+                            }
+                            TileKind::Slope => {
+                                let is_solid = |dir: Option<&TilePos>| -> bool {
+                                    dir.map_or(false, |pos| {
+                                        storage.get_properties(&pos, *layer).map_or(
+                                            false,
+                                            |tile_properties| {
+                                                TileKind::from(tile_properties.id).is_solid()
+                                            },
+                                        )
+                                    })
+                                };
+                                let cardinal = Neighbors::get_square_neighboring_positions(
+                                    pos, map_size, false,
+                                );
+
+                                use SquareDirection::*;
+                                let directions = match (flip.x, flip.y) {
+                                    (false, false) => (West, South),
+                                    (true, false) => (East, South),
+                                    (false, true) => (West, North),
+                                    (true, true) => (East, North),
+                                };
+                                let horizontal = is_solid(cardinal.get(directions.0));
+                                let vertical = is_solid(cardinal.get(directions.1));
+                                let neighbors = vec![horizontal, vertical];
+                                material
+                                    .slope
+                                    .get_pixel(sub_layer, rpos, flip.clone(), &neighbors)
+                            }
+                            TileKind::Pole(_) => todo!(),
+                            TileKind::Platform => todo!(),
+                        } as usize;
 
                         // let dir = tile.get_pixel(sub_layer, rpos) as usize;
-                        let color = palette.get_shade_color(dir, sub_layer, l);
+                        let color = palette.get_sun_color(dir, sub_layer, l);
                         /*
                         let color = match dir {
                             0 => Color::BLUE,

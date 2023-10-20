@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 pub const TILE_SIZE: usize = 20;
 pub const HALF_TILE_SIZE: usize = TILE_SIZE / 2;
+pub const PIXEL_SIZE: usize = 4;
 
 #[derive(Default, Reflect, Copy, Clone)]
 pub enum TilePixel {
@@ -84,7 +85,7 @@ impl BlockMaterial {
 }
 
 pub struct SlopeMaterial {
-    sub_tiles: Vec<Vec<TileLayer>>,
+    sub_tiles: Vec<Vec<Vec<TileLayer>>>,
     computed_tile_layers: Vec<usize>,
 }
 
@@ -116,27 +117,20 @@ impl SlopeMaterial {
                 if row % 2 == 0 {
                     (1, 2)
                 } else {
-                    (0, 4)
+                    (0, 3)
                 }
             }
             (false, true) => {
                 if row % 2 == 0 {
-                    (0, 4)
+                    (0, 3)
                 } else {
                     (1, 2)
                 }
             }
         };
 
-        let res1 = self.sub_tiles[row][quadrant.0].colors[idx];
-        let res2 = self.sub_tiles[row][quadrant.1].colors[idx];
-        let res = if matches!(res1, TilePixel::None) {
-            res2
-        } else if matches!(res2, TilePixel::None) {
-            res1
-        } else {
-            TilePixel::None
-        };
+        let res1 = self.sub_tiles[*tile_layer][row][quadrant.0].colors[idx];
+        let res2 = self.sub_tiles[*tile_layer][row][quadrant.1].colors[idx];
 
         // Only one of the quadrants is colored or both are transparent
         match (res1, res2) {
@@ -197,6 +191,7 @@ pub struct MaterialMeta {
     pub name: String,
     pub name_slope: String,
     pub layer_repeats: Vec<usize>,
+    pub layer_repeats_slope: Vec<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TypeUuid, TypePath)]
@@ -325,47 +320,37 @@ pub fn load_tiles(
     *loaded = true;
 
     let mut tiles: HashMap<String, Tile> = HashMap::new();
-    let mut materials: HashMap<String, Material> = HashMap::new();
+
+    let get_tile_layer = |sub_layer: usize, layer_repeats: &Vec<usize>| -> usize {
+        let mut unrolled = Vec::new();
+        for (idx, e) in layer_repeats.iter().enumerate() {
+            (0..*e).for_each(|_| {
+                unrolled.push(idx);
+            })
+        }
+        let tile_layer = unrolled[sub_layer];
+        tile_layer
+    };
+
+    let compute_tile_layers = |layer_repeats: &Vec<usize>| -> Vec<usize> {
+        (0..layer_repeats.iter().sum())
+            .map(|idx| get_tile_layer(idx, layer_repeats))
+            .collect()
+    };
 
     for (name, (handle, meta)) in tile_images.0.iter() {
-        let get_tile_layer = |sub_layer: usize| -> usize {
-            let mut unrolled = Vec::new();
-            for (idx, e) in meta.layer_repeats().iter().enumerate() {
-                (0..*e).for_each(|_| {
-                    unrolled.push(idx);
-                })
-            }
-            let tile_layer = unrolled[sub_layer];
-            tile_layer
-        };
-        let computed_tile_layers = (0..meta.layer_repeats().iter().sum())
-            .map(|idx| get_tile_layer(idx))
-            .collect();
         match meta {
             Meta::TileMeta(meta) => {
                 let tile_image = images.get(handle).unwrap();
                 let tile = Tile {
-                    layers: tile_image
-                        .data
-                        .chunks(4)
-                        .map(|color_data| {
-                            let (r, g, b, a) =
-                                (color_data[0], color_data[1], color_data[2], color_data[3]);
-                            match (r, g, b, a) {
-                                (0, 0, 0, 0) => TilePixel::None,
-                                (255, 0, 0, 255) => TilePixel::Up,
-                                (0, 255, 0, 255) => TilePixel::Neutral,
-                                (0, 0, 255, 255) => TilePixel::Down,
-                                _ => unreachable!(),
-                            }
-                        })
-                        .collect::<Vec<TilePixel>>()
+                    layers: TileLayer::from(&tile_image.data)
+                        .colors
                         .chunks(TILE_SIZE.pow(2) * (meta.size.x * meta.size.y) as usize)
                         .map(|chunk| TileLayer {
                             colors: chunk.to_vec(),
                         })
                         .collect(),
-                    computed_tile_layers,
+                    computed_tile_layers: compute_tile_layers(&meta.layer_repeats),
                     size: meta.size,
                 };
                 tiles.insert(name.clone(), tile);
@@ -374,47 +359,24 @@ pub fn load_tiles(
         }
     }
 
+    let mut materials: HashMap<String, Material> = HashMap::new();
     for (name, (handles, meta)) in material_images.0.iter() {
-        let get_tile_layer = |sub_layer: usize| -> usize {
-            let mut unrolled = Vec::new();
-            for (idx, e) in meta.layer_repeats().iter().enumerate() {
-                (0..*e).for_each(|_| {
-                    unrolled.push(idx);
-                })
-            }
-            let tile_layer = unrolled[sub_layer];
-            tile_layer
-        };
-        let computed_tile_layers: Vec<usize> = (0..meta.layer_repeats().iter().sum())
-            .map(|idx| get_tile_layer(idx))
-            .collect();
         match meta {
             Meta::MaterialMeta(meta) => {
+                let computed_tile_layers = compute_tile_layers(&meta.layer_repeats);
+                let computed_tile_layers_slope = compute_tile_layers(&meta.layer_repeats_slope);
                 let material_images: Vec<&Image> = handles
                     .iter()
                     .map(|handle| images.get(handle).unwrap())
                     .collect();
-                let block_image = material_images[0];
-                let material_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
-                let res: Vec<SubTile> = block_image
-                    .data
-                    .chunks(4)
-                    .map(|pixel| {
-                        let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
-                        match (r, g, b, a) {
-                            (0, 0, 0, 0) => TilePixel::None,
-                            (255, 0, 0, 255) => TilePixel::Up,
-                            (0, 255, 0, 255) => TilePixel::Neutral,
-                            (0, 0, 255, 255) => TilePixel::Down,
-                            _ => unreachable!(),
-                        }
-                    })
-                    .collect::<Vec<TilePixel>>()
-                    .chunks(HALF_TILE_SIZE.pow(2) * material_rows)
+                let block_rows = 5; // 5 cases A = AIR, S = SOLID : (A,A), (A,S), (S,A), (A,A,D), (S,S)
+                let sub_tiles: Vec<SubTile> = TileLayer::from(&material_images[0].data)
+                    .colors
+                    .chunks(HALF_TILE_SIZE.pow(2) * block_rows)
                     .enumerate()
                     .map(|(quadrant, row)| SubTile {
                         quadrant,
-                        data: (0..material_rows)
+                        data: (0..block_rows)
                             .map(|r| {
                                 let start = r * HALF_TILE_SIZE;
                                 TileLayer {
@@ -424,7 +386,7 @@ pub fn load_tiles(
                                         })
                                         .map(|(vx, vy)| {
                                             let wpos =
-                                                start + vx + vy * HALF_TILE_SIZE * material_rows;
+                                                start + vx + vy * HALF_TILE_SIZE * block_rows;
                                             row[wpos]
                                         })
                                         .collect(),
@@ -434,12 +396,43 @@ pub fn load_tiles(
                     })
                     .collect();
                 let block = BlockMaterial {
-                    sub_tiles: res,
-                    computed_tile_layers: computed_tile_layers.clone(),
-                };
-                let slope = SlopeMaterial {
-                    sub_tiles: Vec::new(),
+                    sub_tiles,
                     computed_tile_layers,
+                };
+                let slope_rows = 4;
+                let slope_cols = 4;
+                let sub_tiles: Vec<Vec<Vec<TileLayer>>> = TileLayer::from(&material_images[1].data)
+                    .colors
+                    .chunks(TILE_SIZE.pow(2) * slope_rows * slope_cols)
+                    .map(|layer| {
+                        layer
+                            .chunks(TILE_SIZE.pow(2) * slope_rows)
+                            .enumerate()
+                            .map(|(_, row)| {
+                                (0..slope_rows)
+                                    .map(|r| {
+                                        let start = r * TILE_SIZE;
+                                        TileLayer {
+                                            colors: (0..TILE_SIZE)
+                                                .flat_map(move |vy| {
+                                                    (0..TILE_SIZE).map(move |vx| (vx, vy))
+                                                })
+                                                .map(|(vx, vy)| {
+                                                    let wpos =
+                                                        start + vx + vy * TILE_SIZE * slope_rows;
+                                                    row[wpos]
+                                                })
+                                                .collect(),
+                                        }
+                                    })
+                                    .collect::<Vec<TileLayer>>()
+                            })
+                            .collect()
+                    })
+                    .collect();
+                let slope = SlopeMaterial {
+                    sub_tiles,
+                    computed_tile_layers: computed_tile_layers_slope,
                 };
                 let material = Material { block, slope };
                 materials.insert(name.clone(), material);
@@ -450,4 +443,24 @@ pub fn load_tiles(
 
     cmds.insert_resource(Tiles(tiles));
     cmds.insert_resource(Materials(materials));
+}
+
+impl From<&Vec<u8>> for TileLayer {
+    fn from(value: &Vec<u8>) -> Self {
+        TileLayer {
+            colors: value
+                .chunks(PIXEL_SIZE)
+                .map(|pixel| {
+                    let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
+                    match (r, g, b, a) {
+                        (0, 0, 0, 0) => TilePixel::None,
+                        (255, 0, 0, 255) => TilePixel::Up,
+                        (0, 255, 0, 255) => TilePixel::Neutral,
+                        (0, 0, 255, 255) => TilePixel::Down,
+                        _ => unreachable!(),
+                    }
+                })
+                .collect::<Vec<TilePixel>>(),
+        }
+    }
 }
