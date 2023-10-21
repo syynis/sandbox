@@ -155,8 +155,8 @@ pub fn render_map_images(
                                     .slope
                                     .get_pixel(sub_layer, rpos, flip.clone(), &neighbors)
                             }
-                            TileKind::Pole(_) => todo!(),
-                            TileKind::Platform => todo!(),
+                            TileKind::Pole(_) => TilePixel::Neutral,
+                            TileKind::Platform => TilePixel::Neutral,
                         } as usize;
 
                         // let dir = tile.get_pixel(sub_layer, rpos) as usize;
