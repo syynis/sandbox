@@ -4,7 +4,6 @@ use bevy::{
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
-use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_prototype_lyon::prelude::ShapePlugin;
 use sandbox::{
     entity::player::{DespawnPlayerCommand, Player, SpawnPlayerCommand},
@@ -21,7 +20,6 @@ fn main() {
     app.add_plugins((
         DefaultPlugins,
         PanCamPlugin::default(),
-        DebugLinesPlugin::default(),
         WorldInspectorPlugin::new(),
         PhysPlugin,
         ShapePlugin,

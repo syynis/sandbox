@@ -3,7 +3,6 @@ use bevy::{
     prelude::*,
 };
 use bevy_ecs_tilemap::prelude::*;
-use leafwing_input_manager::prelude::*;
 
 use crate::{editor::EditorActions, level::placement::TileProperties};
 
@@ -35,7 +34,7 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
                 CommonToolParams {
                     mut tiles,
                     tile_cursor,
-                    lines,
+                    gizmos,
                     mut editor_state,
                     editor_actions,
                 },
@@ -45,7 +44,7 @@ impl<'w, 's> Tool for PoleTool<'w, 's> {
             return;
         };
 
-        draw_tile_outline(tile_cursor, lines);
+        draw_tile_outline(tile_cursor, gizmos);
 
         let Ok(editor_actions) = editor_actions.get_single() else {
             return;

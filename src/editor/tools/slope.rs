@@ -36,7 +36,7 @@ impl<'w, 's> Tool for SlopeTool<'w, 's> {
                     mut tiles,
                     tile_cursor,
                     mut editor_state,
-                    lines,
+                    gizmos,
                     editor_actions,
                 },
         } = self.system_state.get_mut(world);
@@ -45,7 +45,7 @@ impl<'w, 's> Tool for SlopeTool<'w, 's> {
             return;
         };
 
-        draw_tile_outline(tile_cursor, lines);
+        draw_tile_outline(tile_cursor, gizmos);
 
         let Ok(editor_actions) = editor_actions.get_single() else {
             return;

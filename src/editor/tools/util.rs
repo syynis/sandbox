@@ -1,5 +1,4 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
-use bevy_prototype_debug_lines::DebugLines;
 use leafwing_input_manager::prelude::ActionState;
 
 use crate::{
@@ -13,16 +12,16 @@ pub struct CommonToolParams<'w, 's> {
     pub tiles: StorageAccess<'w, 's>,
     pub tile_cursor: Res<'w, TileCursor>,
     pub editor_state: ResMut<'w, EditorState>,
-    pub lines: ResMut<'w, DebugLines>,
+    pub gizmos: Gizmos<'s>,
     pub editor_actions: Query<'w, 's, &'static ActionState<EditorActions>>,
 }
 
-pub fn draw_tile_outline(tile_cursor: Res<TileCursor>, mut lines: ResMut<DebugLines>) {
+pub fn draw_tile_outline(tile_cursor: Res<TileCursor>, mut gizmos: Gizmos) {
     if let Some(tile_cursor) = **tile_cursor {
         let wpos = tpos_wpos(&tile_cursor);
 
-        for (start, end) in box_lines(wpos.extend(0.), Vec2::new(16., 16.)) {
-            lines.line_colored(start, end, 0., Color::RED);
+        for (start, end) in box_lines(wpos, Vec2::new(16., 16.)) {
+            gizmos.line_2d(start, end, Color::RED);
         }
     }
 }

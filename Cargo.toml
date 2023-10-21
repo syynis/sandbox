@@ -11,7 +11,6 @@ bevy-inspector-egui = "0.19"
 rand = "0.8.5"
 leafwing-input-manager = "0.10"
 bevy_pancam = {version = "0.9", features = ["bevy_egui"]}
-bevy_prototype_debug_lines = "0.11"
 #bevy_ecs_tilemap = "0.11"
 bevy_ecs_tilemap = {git = "https://github.com/StarArawn/bevy_ecs_tilemap", branch = "main"}
 bevy_prototype_lyon = "0.9"

@@ -6,7 +6,7 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
 use rand::{seq::IteratorRandom, thread_rng};
 use sandbox::editor::{
-    palette::Palette,
+    palette::{Palette, Palettes},
     tiles::{Materials, Tiles, TILE_SIZE},
     AppState, EditorPlugin,
 };
@@ -47,13 +47,13 @@ pub struct MapImages(pub Vec<Handle<Image>>);
 
 fn spawn_map(
     mut cmds: Commands,
-    palette: Res<Palette>,
+    palette: Res<Palettes>,
     mut images: ResMut<Assets<Image>>,
     tiles: Res<Tiles>,
     materials: Res<Materials>,
     mut map_images: ResMut<MapImages>,
 ) {
-    cmds.insert_resource(ClearColor(palette.meta.skycolor));
+    cmds.insert_resource(ClearColor(palette.get_active().meta.skycolor));
 
     let mut map = vec![vec![0; 64]; 36];
     let map_width = map[0].len();
@@ -102,7 +102,7 @@ fn spawn_map(
                             };
                             if *tile_id == 1 {
                                 let dir = tile.get_pixel(idx, rpos) as usize;
-                                let color = palette.get_sun_color(dir, idx, l);
+                                let color = palette.get_active().get_sun_color(dir, idx, l);
                                 set_color(&mut data, color, wpos);
                             }
                         }

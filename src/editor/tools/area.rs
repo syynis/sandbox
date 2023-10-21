@@ -3,7 +3,6 @@ use bevy::{
     prelude::*,
 };
 use bevy_ecs_tilemap::prelude::*;
-use leafwing_input_manager::prelude::ActionState;
 
 use crate::{
     editor::EditorActions,
@@ -87,7 +86,7 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
                     mut tiles,
                     tile_cursor,
                     mut editor_state,
-                    mut lines,
+                    mut gizmos,
                     editor_actions,
                 },
             mut current_mode,
@@ -106,13 +105,13 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
             let min = tpos_wpos(&TilePos::from(min));
             let max = tpos_wpos(&TilePos::from(max));
 
-            for (start, end) in box_lines(min.extend(0.), max - min + 16.) {
-                lines.line_colored(start, end, 0., Color::RED);
+            for (start, end) in box_lines(min, max - min + 16.) {
+                gizmos.line_2d(start, end, Color::RED);
             }
         }
 
         if self.start.is_none() {
-            draw_tile_outline(tile_cursor, lines);
+            draw_tile_outline(tile_cursor, gizmos);
         }
 
         let Ok(editor_actions) = editor_actions.get_single() else {
