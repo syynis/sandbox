@@ -202,7 +202,7 @@ impl EditorState {
     }
 
     pub fn next_layer(&mut self) {
-        self.current_layer = self.current_layer.next();
+        self.current_layer = self.current_layer.wrapping_next();
     }
 }
 

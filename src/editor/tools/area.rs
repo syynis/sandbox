@@ -15,11 +15,12 @@ use super::{
     Tool,
 };
 
-pub const ALL_MODES: [Mode; 4] = [
+pub const ALL_MODES: [Mode; 5] = [
     Mode::PlaceLayer,
     Mode::DeleteLayer,
     Mode::PlaceAllLayers,
     Mode::DeleteAllLayers,
+    Mode::CopyBack,
 ];
 
 #[derive(Default, PartialEq, Copy, Clone)]
@@ -29,6 +30,7 @@ pub enum Mode {
     DeleteLayer,
     PlaceAllLayers,
     DeleteAllLayers,
+    CopyBack,
 }
 
 #[derive(Default, Resource, Deref, DerefMut)]
@@ -41,7 +43,8 @@ impl Mode {
             PlaceLayer => DeleteLayer,
             DeleteLayer => PlaceAllLayers,
             PlaceAllLayers => DeleteAllLayers,
-            DeleteAllLayers => PlaceLayer,
+            DeleteAllLayers => CopyBack,
+            CopyBack => PlaceLayer,
         }
     }
 
@@ -52,6 +55,7 @@ impl Mode {
             DeleteLayer => "Delete",
             PlaceAllLayers => "Place All",
             DeleteAllLayers => "Delete All",
+            CopyBack => "Copy Back",
         }
     }
 }
@@ -172,6 +176,18 @@ impl<'w, 's> Tool for AreaTool<'w, 's> {
                         Mode::DeleteAllLayers => ALL_LAYERS
                             .iter()
                             .for_each(|layer| tiles.remove(&pos, *layer)),
+                        Mode::CopyBack => {
+                            if tiles.get(&pos, editor_state.current_layer).is_some() {
+                                tiles.replace(
+                                    &pos,
+                                    TileProperties {
+                                        id: TileTextureIndex(0),
+                                        flip: TileFlip::default(),
+                                    },
+                                    editor_state.current_layer.next(),
+                                )
+                            }
+                        }
                     }
                 });
             });

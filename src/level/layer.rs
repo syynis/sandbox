@@ -17,6 +17,14 @@ impl Layer {
         match self {
             World => Near,
             Near => Far,
+            Far => Far,
+        }
+    }
+    pub fn wrapping_next(&self) -> Self {
+        use Layer::*;
+        match self {
+            World => Near,
+            Near => Far,
             Far => World,
         }
     }

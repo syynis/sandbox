@@ -54,7 +54,9 @@ impl BasicWidget for ToolPicker {
                 let Some(texture_id) = tool_data.egui_texture_id else {
                     continue;
                 };
-                let image_button = egui::ImageButton::new(texture_id, epaint::Vec2::new(32., 32.));
+                let image_button = egui::ImageButton::new(texture_id, epaint::Vec2::new(32., 32.))
+                    .selected(*tool_id == editor_state.active_tool);
+
                 let res = ui.add(image_button);
 
                 res.clone().on_hover_text(tool_data.name.clone());
@@ -141,7 +143,7 @@ impl BasicWidget for AreaToolPanel {
 
                 if changed {
                     let mut mode = world.resource_mut::<ActiveMode>();
-                    mode.0 = mode.next();
+                    mode.0 = current_mode;
                 }
                 ui.allocate_space(ui.available_size());
             });
