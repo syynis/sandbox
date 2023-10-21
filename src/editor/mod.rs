@@ -14,7 +14,7 @@ use crate::file_picker;
 use crate::level::layer::Layer;
 
 use self::{
-    palette::{load_palette_image, parse_palette_image, Palette, PaletteHandle},
+    palette::{load_palette_image, parse_palette_image, Palette, PaletteHandles, Palettes},
     render::MapImages,
     tiles::{load_manifests, load_tile_images, load_tiles, Manifest, Manifests, Materials, Tiles},
     tools::{area::ActiveMode, ToolId, ToolSet},
@@ -27,12 +27,13 @@ impl Plugin for EditorPlugin {
         app.add_plugins(RonAssetPlugin::<Manifest>::new(&["manifest.ron"]));
 
         app.register_type::<MapImages>();
+        app.register_type::<Palette>();
+        app.register_type::<Palettes>();
 
         app.add_state::<AppState>();
         app.init_resource::<EditorState>();
         app.init_resource::<ActiveMode>();
         app.init_resource::<Manifests>();
-        app.init_resource::<Palette>();
 
         // Loading state
         app.add_systems(
@@ -62,23 +63,20 @@ pub enum AppState {
 fn finished_loading(
     mut next_state: ResMut<NextState<AppState>>,
     asset_server: Res<AssetServer>,
-    palette: Res<PaletteHandle>,
+    palettes: Res<PaletteHandles>,
     tiles: Option<Res<Tiles>>,
     materials: Option<Res<Materials>>,
 ) {
     let tiles_loaded = tiles.is_some();
     let materials_loaded = materials.is_some();
 
-    let palette_loaded = match asset_server.get_load_state(palette.0.id()) {
-        LoadState::Loaded => true,
-        LoadState::Failed => {
-            bevy::log::error!("Failed to load palette image");
-            false
-        }
-        _ => false,
-    };
+    let palettes_loaded =
+        match asset_server.get_group_load_state(palettes.0.iter().map(|handle| handle.id())) {
+            LoadState::Loaded => true,
+            _ => false,
+        };
 
-    if palette_loaded && tiles_loaded && materials_loaded {
+    if palettes_loaded && tiles_loaded && materials_loaded {
         next_state.set(AppState::Display);
     }
 }
@@ -147,6 +145,7 @@ pub enum EditorActions {
     CycleTool,
     CycleLayer,
     CycleToolMode,
+    CyclePalette,
     Load,
     New,
     Save,

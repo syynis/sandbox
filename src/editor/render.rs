@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::{
-    palette::Palette,
+    palette::Palettes,
     tiles::{Materials, Tiles, TILE_SIZE},
     EditorActions,
 };
@@ -32,7 +32,7 @@ pub struct MapImages {
 
 pub fn render_map_images(
     mut cmds: Commands,
-    palette: Res<Palette>,
+    palette: Res<Palettes>,
     mut images: ResMut<Assets<Image>>,
     tiles: Res<Tiles>,
     materials: Res<Materials>,
@@ -68,7 +68,7 @@ pub fn render_map_images(
     // TODO make this work for different sized tiles
     let mut map_images = Vec::new();
     let tile = tiles.0.get("small_stone").unwrap();
-    let material = materials.0.get("standard").unwrap();
+    let material = materials.0.get("stone").unwrap();
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
         let map = storage.storage(*layer).unwrap();
         for sub_layer in 0..10 {
@@ -160,7 +160,7 @@ pub fn render_map_images(
                         } as usize;
 
                         // let dir = tile.get_pixel(sub_layer, rpos) as usize;
-                        let color = palette.get_sun_color(dir, sub_layer, l);
+                        let color = palette.get_active().get_shade_color(dir, sub_layer, l);
                         /*
                         let color = match dir {
                             0 => Color::BLUE,

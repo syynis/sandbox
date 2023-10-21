@@ -10,6 +10,7 @@ use bevy_prototype_debug_lines::DebugLinesPlugin;
 use bevy_xpbd_2d::math::Vector;
 use bevy_xpbd_2d::prelude::*;
 use leafwing_input_manager::prelude::*;
+use sandbox::editor::palette::Palettes;
 use sandbox::editor::render::display_images;
 use sandbox::editor::render::render_map_images;
 use sandbox::editor::render::setup_display;
@@ -80,7 +81,6 @@ fn main() {
     app.add_systems(
         Update,
         (
-            apply_editor_actions,
             apply_tool,
             render_tilemap_outline,
             draw_ui,
@@ -102,6 +102,7 @@ fn main() {
     app.add_systems(
         Update,
         (
+            apply_editor_actions,
             render_map_images,
             display_images.run_if(resource_exists::<MapImages>()),
         )
@@ -178,6 +179,7 @@ fn editor_actions_map() -> InputMap<EditorActions> {
     input_map.insert(KeyCode::L, Load);
     input_map.insert(KeyCode::T, CycleToolMode);
     input_map.insert(KeyCode::Z, ReloadMapDisplay);
+    input_map.insert(KeyCode::P, CyclePalette);
 
     input_map.insert_modified(Modifier::Control, MouseButton::Left, EditorActions::Area);
     input_map.insert_modified(Modifier::Shift, KeyCode::C, EditorActions::CycleLayer);
@@ -263,6 +265,7 @@ fn apply_editor_actions(
     actions: Query<&ActionState<EditorActions>>,
     mut event_writer: EventWriter<EditorEvent>,
     mut editor_state: ResMut<EditorState>,
+    mut palettes: ResMut<Palettes>,
 ) {
     let Some(actions) = actions.get_single().ok() else {
         return;
@@ -300,6 +303,10 @@ fn apply_editor_actions(
 
     if actions.just_pressed(EditorActions::CycleLayer) {
         editor_state.next_layer();
+    }
+
+    if actions.just_pressed(EditorActions::CyclePalette) {
+        palettes.cycle();
     }
 }
 

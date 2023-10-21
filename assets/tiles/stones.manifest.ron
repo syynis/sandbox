@@ -35,5 +35,15 @@
                 1, 9,
             ],
         )),
+        MaterialMeta((
+            name: "stone",
+            name_slope: "stone_slope",
+            layer_repeats: [
+                10,
+            ],
+            layer_repeats_slope: [
+                10,
+            ],
+        )),
     ],
 )
