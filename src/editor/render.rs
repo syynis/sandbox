@@ -71,14 +71,14 @@ pub fn render_map_images(
 
     let width = map_width * TILE_SIZE;
     let height = map_height * TILE_SIZE;
-    let center = Vec2::new(width as f32 / 2., height as f32 / 2.);
+    let map_center = Vec2::new(width as f32 / 2., height as f32 / 2.);
     let texture_format_size = 4; // 4 channels each a u8
 
     // TODO make this work for different sized tiles
     let tile = tiles.0.get("small_stone").unwrap();
     let material = materials.0.get("stone").unwrap();
-    let mut data: Vec<u8> = vec![0; (texture_format_size * width * height) as usize];
-    let mut depth: Vec<u8> = vec![30; (width * height) as usize];
+    let mut data: Vec<u8> = vec![0; texture_format_size * width * height];
+    let mut depth: Vec<u8> = vec![30; width * height];
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
         let map = storage.storage(*layer).unwrap();
         for sub_layer in 0..10 {
@@ -93,51 +93,60 @@ pub fn render_map_images(
                 let tile_center = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * TILE_SIZE as f32;
 
                 // TODO simplify this
-                let base_offset = (tile_center - center) / center * Vec2::new(2., 2.);
-                let layer_offset = base_offset * 10. * l as f32;
-                let offset = layer_offset + base_offset * sub_layer as f32;
+                // How much do we move per depth
+                let base_offset = Vec2::new(2., 2.);
+                // Distance towards center normalized
+                let center_dir = (tile_center - map_center) / map_center;
+                // Offset calculated from depth, dir and base_offset
+                let offset = center_dir * (10 * l + sub_layer) as f32 * base_offset;
+                // Needed for image indexing
+                // Negate because for image indexing y = 0 -> top row
+                // TODO think about doing this differently, would get rid of i32 casts
                 let offset_rounded = -offset.round();
                 let offset_x = offset_rounded.x as i32;
                 let offset_y = offset_rounded.y as i32;
                 let offset_idx = offset_x + offset_y * TILE_SIZE as i32 * map_width as i32;
-                let tile_start = tile_start as i32 + offset_idx;
-                let tile_start = tile_start as usize;
+                let tile_start = (tile_start as i32 + offset_idx) as usize;
 
                 (0..TILE_SIZE)
                     .flat_map(move |ty| (0..TILE_SIZE).map(move |tx| (tx, ty)))
                     .for_each(|(tx, ty)| {
                         let rpos = tx + ty * TILE_SIZE;
                         let wpos = tile_start + tx + ty * TILE_SIZE * map_width;
+                        let wpos_texture = wpos * texture_format_size;
                         let layer_idx = (sub_layer + l * 10) as u8;
                         // dont overdraw
                         if depth[wpos] < layer_idx {
                             return;
                         }
-                        depth[wpos] = layer_idx;
-                        let wpos = wpos * texture_format_size;
 
                         let dir = match TileKind::from(*id) {
                             TileKind::Square => {
                                 let neighbors = Neighbors::get_square_neighboring_positions(
                                     pos, map_size, true,
                                 );
+                                // Cyclic in last quadrant we want to check West, SouthWest and South
+                                // TODO a bit hacky think about doing this in a principled way
                                 use SquareDirection::*;
                                 let directions: [SquareDirection; 9] = [
                                     West, NorthWest, North, NorthEast, East, SouthEast, South,
                                     SouthWest, West,
                                 ];
+                                // Which neighbors contain a tile
+                                // TODO check if neighbor is solid
                                 let neighbors: Vec<bool> = directions
                                     .iter()
-                                    .map(|dir| match neighbors.get(*dir) {
-                                        Some(npos) => map.get(npos).is_some(),
-                                        None => false,
+                                    .map(|dir| {
+                                        neighbors
+                                            .get(*dir)
+                                            .map_or(false, |npos| map.get(npos).is_some())
                                     })
                                     .collect();
                                 material.block.get_pixel(sub_layer, rpos, &neighbors)
                             }
                             TileKind::Slope => {
-                                let is_solid = |dir: Option<&TilePos>| -> bool {
-                                    dir.map_or(false, |pos| {
+                                let is_solid = |neighbor: Option<&TilePos>| -> bool {
+                                    neighbor.map_or(false, |pos| {
                                         storage.get_properties(&pos, *layer).map_or(
                                             false,
                                             |tile_properties| {
@@ -150,16 +159,17 @@ pub fn render_map_images(
                                     pos, map_size, false,
                                 );
 
+                                // Slope can have at most two neighbors that need to be solid
                                 use SquareDirection::*;
-                                let directions = match (flip.x, flip.y) {
-                                    (false, false) => (West, South),
-                                    (true, false) => (East, South),
-                                    (false, true) => (West, North),
-                                    (true, true) => (East, North),
-                                };
-                                let horizontal = is_solid(cardinal.get(directions.0));
-                                let vertical = is_solid(cardinal.get(directions.1));
-                                let neighbors = vec![horizontal, vertical];
+                                let neighbors = match (flip.x, flip.y) {
+                                    (false, false) => vec![West, South],
+                                    (true, false) => vec![East, South],
+                                    (false, true) => vec![West, North],
+                                    (true, true) => vec![East, North],
+                                }
+                                .iter()
+                                .map(|dir| is_solid(cardinal.get(*dir)))
+                                .collect();
                                 material
                                     .slope
                                     .get_pixel(sub_layer, rpos, flip.clone(), &neighbors)
@@ -168,19 +178,23 @@ pub fn render_map_images(
                             TileKind::Platform => TilePixel::Neutral,
                         };
 
-                        let color = match dir {
+                        // draw to the depth buffer unless pixel is transparent
+                        if !matches!(dir, TilePixel::None) {
+                            depth[wpos] = layer_idx;
+                        }
+
+                        let [r, g, b, a] = match dir {
                             TilePixel::Up => Color::BLUE,
                             TilePixel::Neutral => Color::GREEN,
                             TilePixel::Down => Color::RED,
                             TilePixel::None => Color::NONE,
                             _ => unreachable!(),
-                        };
-
-                        let [r, g, b, a] = color.as_rgba_u8();
-                        data[wpos] = r;
-                        data[wpos + 1] = g;
-                        data[wpos + 2] = b;
-                        data[wpos + 3] = a;
+                        }
+                        .as_rgba_u8();
+                        data[wpos_texture] = r;
+                        data[wpos_texture + 1] = g;
+                        data[wpos_texture + 2] = b;
+                        data[wpos_texture + 3] = a;
                     });
             }
         }
