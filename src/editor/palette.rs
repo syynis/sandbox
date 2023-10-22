@@ -7,7 +7,7 @@ pub struct PaletteMeta {
 
 #[derive(Default, Reflect)]
 pub struct PaletteRows {
-    colors: [[Color; 30]; 3],
+    pub colors: [[Color; 30]; 3],
 }
 
 #[derive(Default, Reflect)]
@@ -16,25 +16,6 @@ pub struct Palette {
     pub sun: PaletteRows,
     pub shade: PaletteRows,
 }
-
-#[derive(Default, Resource, Reflect)]
-#[reflect(Resource)]
-pub struct Palettes {
-    active_palette: usize,
-    palettes: Vec<Palette>,
-}
-
-impl Palettes {
-    pub fn get_active(&self) -> &Palette {
-        &self.palettes[self.active_palette]
-    }
-    pub fn cycle(&mut self) {
-        self.active_palette = (self.active_palette + 1) % self.palettes.len();
-    }
-}
-
-#[derive(Resource)]
-pub struct PaletteHandles(pub Vec<Handle<Image>>);
 
 impl Palette {
     pub fn get_color(&self, shade: bool, dir: usize, idx: usize, layer: usize) -> Color {
@@ -57,7 +38,31 @@ impl Palette {
     }
 }
 
-pub fn load_palette_image(mut cmds: Commands, asset_server: Res<AssetServer>) {
+#[derive(Default, Resource, Reflect)]
+#[reflect(Resource)]
+pub struct Palettes {
+    active_palette: usize,
+    palettes: Vec<Palette>,
+}
+
+impl Palettes {
+    pub fn get_active(&self) -> &Palette {
+        &self.palettes[self.active_palette]
+    }
+
+    pub fn get(&self, idx: usize) -> &Palette {
+        &self.palettes[idx]
+    }
+
+    pub fn cycle(&mut self) {
+        self.active_palette = (self.active_palette + 1) % self.palettes.len();
+    }
+}
+
+#[derive(Resource)]
+pub struct PaletteHandles(pub Vec<Handle<Image>>);
+
+pub fn load_palette_images(mut cmds: Commands, asset_server: Res<AssetServer>) {
     let palettes = asset_server.load_folder("palettes").unwrap();
     let palettes: Vec<Handle<Image>> = palettes
         .iter()
@@ -66,7 +71,7 @@ pub fn load_palette_image(mut cmds: Commands, asset_server: Res<AssetServer>) {
     cmds.insert_resource(PaletteHandles(palettes));
 }
 
-pub fn parse_palette_image(
+pub fn parse_palette_images(
     mut cmds: Commands,
     asset_server: Res<AssetServer>,
     palette_handles: Res<PaletteHandles>,

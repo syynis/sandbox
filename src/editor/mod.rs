@@ -17,7 +17,7 @@ use crate::{
 use crate::{level::layer::Layer, ui::draw_confirmation_dialog};
 
 use self::{
-    palette::{load_palette_image, parse_palette_image, Palette, PaletteHandles, Palettes},
+    palette::{load_palette_images, parse_palette_images, Palette, PaletteHandles, Palettes},
     render::{display_images, render_map_images, MapImages},
     tiles::{load_manifests, load_tile_images, load_tiles, Manifest, Manifests, Materials, Tiles},
     tools::{
@@ -73,13 +73,13 @@ impl Plugin for EditorPlugin {
         // Loading state
         app.add_systems(
             OnEnter(AppState::Loading),
-            (load_palette_image, load_manifests, load_egui_icons),
+            (load_palette_images, load_manifests, load_egui_icons),
         );
         app.add_systems(
             Update,
             (
                 (
-                    parse_palette_image,
+                    parse_palette_images,
                     load_tile_images,
                     load_tiles,
                     finished_loading,
