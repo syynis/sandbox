@@ -25,9 +25,20 @@ use super::{
 
 #[derive(Default, Resource, Reflect)]
 #[reflect(Resource)]
-pub struct MapImages {
-    pub images: Vec<Handle<Image>>,
-    pub offset: Vec2,
+pub struct MapTexture {
+    pub texture: Handle<Image>,
+    pub colored: Handle<Image>,
+    pub depth: Vec<u8>,
+}
+
+pub fn make_image(width: u32, height: u32, data: Vec<u8>) -> Image {
+    let image_size = Extent3d {
+        width,
+        height,
+        ..default()
+    };
+    let dimension = TextureDimension::D2;
+    Image::new(image_size, dimension, data, TextureFormat::Rgba8Unorm)
 }
 
 pub fn render_map_images(
@@ -38,7 +49,7 @@ pub fn render_map_images(
     materials: Res<Materials>,
     storage: StorageAccess,
     tiles_pos: Query<(&TilePos, &TileTextureIndex, &TileFlip)>,
-    map_images: Option<ResMut<MapImages>>,
+    map_texture: Option<ResMut<MapTexture>>,
     editor_actions: Query<&ActionState<EditorActions>>,
 ) {
     let Ok(editor_actions) = editor_actions.get_single() else {
@@ -51,10 +62,8 @@ pub fn render_map_images(
         return;
     };
 
-    if let Some(map_images) = map_images {
-        for handle in &map_images.images {
-            images.remove(handle);
-        }
+    if let Some(map_texture) = map_texture {
+        images.remove(&map_texture.texture);
     }
 
     let map_width = map_size.x as usize;
@@ -66,13 +75,13 @@ pub fn render_map_images(
     let texture_format_size = 4; // 4 channels each a u8
 
     // TODO make this work for different sized tiles
-    let mut map_images = Vec::new();
     let tile = tiles.0.get("small_stone").unwrap();
     let material = materials.0.get("stone").unwrap();
+    let mut data: Vec<u8> = vec![0; (texture_format_size * width * height) as usize];
+    let mut depth: Vec<u8> = vec![30; (width * height) as usize];
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
         let map = storage.storage(*layer).unwrap();
         for sub_layer in 0..10 {
-            let mut data: Vec<u8> = vec![0; (texture_format_size * width * height) as usize];
             for (pos, id, flip) in map.iter().filter_map(|tile_entity| {
                 let Some(tile_entity) = tile_entity else {
                     return None;
@@ -83,6 +92,7 @@ pub fn render_map_images(
                 let tile_start = (x + y * width) * TILE_SIZE;
                 let tile_center = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * TILE_SIZE as f32;
 
+                // TODO simplify this
                 let base_offset = (tile_center - center) / center * Vec2::new(2., 2.);
                 let layer_offset = base_offset * 10. * l as f32;
                 let offset = layer_offset + base_offset * sub_layer as f32;
@@ -97,16 +107,15 @@ pub fn render_map_images(
                     .flat_map(move |ty| (0..TILE_SIZE).map(move |tx| (tx, ty)))
                     .for_each(|(tx, ty)| {
                         let rpos = tx + ty * TILE_SIZE;
-                        let wpos =
-                            (tile_start + tx + ty * TILE_SIZE * map_width) * texture_format_size;
+                        let wpos = tile_start + tx + ty * TILE_SIZE * map_width;
+                        let layer_idx = (sub_layer + l * 10) as u8;
+                        // dont overdraw
+                        if depth[wpos] < layer_idx {
+                            return;
+                        }
+                        depth[wpos] = layer_idx;
+                        let wpos = wpos * texture_format_size;
 
-                        let set_color = |d: &mut [u8], color: Color, idx: usize| {
-                            let [r, g, b, a] = color.as_rgba_u8();
-                            d[idx] = r;
-                            d[idx + 1] = g;
-                            d[idx + 2] = b;
-                            d[idx + 3] = a;
-                        };
                         let dir = match TileKind::from(*id) {
                             TileKind::Square => {
                                 let neighbors = Neighbors::get_square_neighboring_positions(
@@ -157,37 +166,56 @@ pub fn render_map_images(
                             }
                             TileKind::Pole(_) => TilePixel::Neutral,
                             TileKind::Platform => TilePixel::Neutral,
-                        } as usize;
+                        };
 
-                        // let dir = tile.get_pixel(sub_layer, rpos) as usize;
-                        let color = palette.get_active().get_shade_color(dir, sub_layer, l);
-                        /*
                         let color = match dir {
-                            0 => Color::BLUE,
-                            1 => Color::GREEN,
-                            2 => Color::RED,
-                            3 => Color::NONE,
+                            TilePixel::Up => Color::BLUE,
+                            TilePixel::Neutral => Color::GREEN,
+                            TilePixel::Down => Color::RED,
+                            TilePixel::None => Color::NONE,
                             _ => unreachable!(),
                         };
-                        */
-                        set_color(&mut data, color, wpos);
+
+                        let [r, g, b, a] = color.as_rgba_u8();
+                        data[wpos] = r;
+                        data[wpos + 1] = g;
+                        data[wpos + 2] = b;
+                        data[wpos + 3] = a;
                     });
             }
-
-            let image_size = Extent3d {
-                width: width as u32,
-                height: height as u32,
-                ..default()
-            };
-            let dimension = TextureDimension::D2;
-            let image = Image::new(image_size, dimension, data, TextureFormat::Rgba8Unorm);
-            let handle = images.add(image);
-            map_images.push(handle);
         }
     }
-    cmds.insert_resource(MapImages {
-        images: map_images,
-        offset: Vec2::splat(0.5),
+
+    let mut colored = data.clone();
+    colored.chunks_mut(4).enumerate().for_each(|(idx, chunk)| {
+        let depth = depth[idx] as usize;
+        let sub_layer = depth % 10;
+        let layer = depth / 10;
+        let (r, g, b, a) = (chunk[0], chunk[1], chunk[2], chunk[3]);
+        let dir = match (r, g, b, a) {
+            (0, 0, 0, 0) => TilePixel::None,
+            (255, 0, 0, 255) => TilePixel::Up,
+            (0, 255, 0, 255) => TilePixel::Neutral,
+            (0, 0, 255, 255) => TilePixel::Down,
+            _ => unreachable!(),
+        };
+        let [r, g, b, a] = palette
+            .get_active()
+            .get_shade_color(dir, sub_layer, layer)
+            .as_rgba_u8();
+        chunk[0] = r;
+        chunk[1] = g;
+        chunk[2] = b;
+        chunk[3] = a;
+    });
+
+    let texture = images.add(make_image(width as u32, height as u32, data));
+    let colored = images.add(make_image(width as u32, height as u32, colored));
+
+    cmds.insert_resource(MapTexture {
+        texture,
+        colored,
+        depth,
     });
 }
 
@@ -197,7 +225,7 @@ pub fn setup_display(mut cmds: Commands) {
     cmds.spawn((
         MapDisplay,
         SpatialBundle {
-            transform: Transform::from_translation(Vec3::new(0., 1000., 0.)),
+            transform: Transform::from_translation(Vec3::new(480., 1000., 0.)),
             ..default()
         },
     ));
@@ -206,25 +234,23 @@ pub fn setup_display(mut cmds: Commands) {
 pub fn display_images(
     mut cmds: Commands,
     map_display: Query<Entity, With<MapDisplay>>,
-    map_images: Res<MapImages>,
+    map_texture: Res<MapTexture>,
 ) {
     let Ok(entity) = map_display.get_single() else {
         return;
     };
-    if map_images.is_changed() {
+    if map_texture.is_changed() {
         cmds.entity(entity).despawn_descendants();
-        for (idx, image) in map_images.images.iter().enumerate() {
-            let sub_layer = idx % 10;
-            let layer = idx / 10;
-            cmds.entity(entity).with_children(|child_builder| {
-                child_builder.spawn(SpriteBundle {
-                    texture: image.clone(),
-                    transform: Transform::from_translation(
-                        Vec3::NEG_Z * sub_layer as f32 + Vec3::NEG_Z * (10 * layer) as f32,
-                    ),
-                    ..default()
-                });
+        cmds.entity(entity).with_children(|builder| {
+            builder.spawn(SpriteBundle {
+                texture: map_texture.texture.clone(),
+                ..default()
             });
-        }
+            builder.spawn(SpriteBundle {
+                texture: map_texture.colored.clone(),
+                transform: Transform::from_translation(Vec3::Y * 1000.),
+                ..default()
+            });
+        });
     }
 }

@@ -18,7 +18,7 @@ use crate::{level::layer::Layer, ui::draw_confirmation_dialog};
 
 use self::{
     palette::{load_palette_images, parse_palette_images, Palette, PaletteHandles, Palettes},
-    render::{display_images, render_map_images, MapImages},
+    render::{display_images, render_map_images, MapTexture},
     tiles::{load_manifests, load_tile_images, load_tiles, Manifest, Manifests, Materials, Tiles},
     tools::{
         area::{ActiveMode, AreaTool},
@@ -49,7 +49,7 @@ impl Plugin for EditorPlugin {
             file_picker::Plugin::<PickerEvent>::default(),
         ));
 
-        app.register_type::<MapImages>();
+        app.register_type::<MapTexture>();
         app.register_type::<Palette>();
         app.register_type::<Palettes>();
         app.register_type::<EditorState>();
@@ -88,7 +88,7 @@ impl Plugin for EditorPlugin {
                 (
                     apply_editor_actions,
                     render_map_images,
-                    display_images.run_if(resource_exists::<MapImages>()),
+                    display_images.run_if(resource_exists::<MapTexture>()),
                 )
                     .run_if(in_state(AppState::Display)),
                 (

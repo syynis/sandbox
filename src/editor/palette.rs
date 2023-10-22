@@ -1,5 +1,7 @@
 use bevy::{asset::LoadState, prelude::*};
 
+use super::tiles::TilePixel;
+
 #[derive(Default, Reflect)]
 pub struct PaletteMeta {
     pub skycolor: Color,
@@ -18,23 +20,24 @@ pub struct Palette {
 }
 
 impl Palette {
-    pub fn get_color(&self, shade: bool, dir: usize, idx: usize, layer: usize) -> Color {
+    pub fn get_color(&self, shade: bool, dir: TilePixel, sub_layer: usize, layer: usize) -> Color {
+        let dir = dir as usize;
         if dir == 3 {
             return Color::rgba_u8(0, 0, 0, 0);
         }
         if shade {
-            self.shade.colors[dir][10 * layer + idx]
+            self.shade.colors[dir][10 * layer + sub_layer]
         } else {
-            self.sun.colors[dir][10 * layer + idx]
+            self.sun.colors[dir][10 * layer + sub_layer]
         }
     }
 
-    pub fn get_sun_color(&self, dir: usize, idx: usize, layer: usize) -> Color {
-        self.get_color(false, dir, idx, layer)
+    pub fn get_sun_color(&self, dir: TilePixel, sub_layer: usize, layer: usize) -> Color {
+        self.get_color(false, dir, sub_layer, layer)
     }
 
-    pub fn get_shade_color(&self, dir: usize, idx: usize, layer: usize) -> Color {
-        self.get_color(true, dir, idx, layer)
+    pub fn get_shade_color(&self, dir: TilePixel, sub_layer: usize, layer: usize) -> Color {
+        self.get_color(true, dir, sub_layer, layer)
     }
 }
 
