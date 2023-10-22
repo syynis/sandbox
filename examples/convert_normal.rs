@@ -5,7 +5,10 @@ use bevy::{
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
-use sandbox::editor::palette::{load_palette_images, parse_palette_images, Palettes};
+use sandbox::editor::{
+    palette::{load_palette_images, parse_palette_images, Palettes},
+    tiles::TilePixel,
+};
 
 pub fn main() {
     let mut app = App::new();
@@ -26,7 +29,10 @@ pub fn main() {
 pub struct Normal(pub Handle<Image>);
 
 #[derive(Resource)]
-pub struct Convert(pub Handle<Image>);
+pub struct Convert {
+    handle: Handle<Image>,
+    size: Vec2,
+}
 
 #[derive(Resource)]
 pub struct ConvertPalette(pub Handle<Image>);
@@ -41,7 +47,7 @@ fn setup(mut cmds: Commands, asset_server: Res<AssetServer>) {
         },
     ));
 
-    let normal = asset_server.load("rocky_normal.png");
+    let normal = asset_server.load("rockTiles.png");
     cmds.insert_resource(Normal(normal));
 }
 
@@ -66,6 +72,11 @@ fn convert(
     }
     *once = true;
 
+    let Vec2 {
+        x: width,
+        y: height,
+    } = images.get(&assets.0).unwrap().size();
+    println!("{} {}", width, height);
     let data = images
         .get(&assets.0)
         .unwrap()
@@ -75,14 +86,16 @@ fn convert(
             let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
             let r_diff = 255 - r;
             let g_diff = 255 - g;
-            let b_diff = b - 128;
+            let b_diff = b.saturating_sub(128);
 
-            if r_diff < 100 {
+            if a == 0 {
+                Color::NONE
+            } else if r_diff < 100 {
                 Color::rgba_u8(255, 0, 0, 255)
             } else if g_diff < 100 {
-                Color::rgba_u8(0, 0, 255, 255)
-            } else {
                 Color::rgba_u8(0, 255, 0, 255)
+            } else {
+                Color::rgba_u8(0, 0, 255, 255)
             }
         })
         .flat_map(|color| color.as_rgba_u8())
@@ -97,14 +110,15 @@ fn convert(
             let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
             let r_diff = 255 - r;
             let g_diff = 255 - g;
-            let b_diff = b - 128;
-
-            let color = if r_diff < 100 {
-                0
+            let b_diff = b.saturating_sub(128);
+            let color = if a == 0 {
+                TilePixel::None
+            } else if r_diff < 100 {
+                TilePixel::Up
             } else if g_diff < 100 {
-                2
+                TilePixel::Down
             } else {
-                1
+                TilePixel::Neutral
             };
 
             palette.get_shade_color(color, 0, 0)
@@ -113,8 +127,8 @@ fn convert(
         .collect::<Vec<u8>>();
 
     let image_size = Extent3d {
-        width: 200,
-        height: 200,
+        width: width as u32,
+        height: height as u32,
         ..default()
     };
     let dimension = TextureDimension::D2;
@@ -127,7 +141,10 @@ fn convert(
     );
     let handle = images.add(image);
     let handle_palette = images.add(image_palette);
-    cmds.insert_resource(Convert(handle));
+    cmds.insert_resource(Convert {
+        handle,
+        size: Vec2::new(width, height),
+    });
     cmds.insert_resource(ConvertPalette(handle_palette))
 }
 
@@ -138,14 +155,15 @@ fn display(
     convert_palette: Res<ConvertPalette>,
 ) {
     if convert.is_changed() {
+        let size = convert.size;
         cmds.spawn(SpriteBundle {
             texture: convert_palette.0.clone(),
-            transform: Transform::from_xyz(400., 0., 0.),
+            transform: Transform::from_xyz(size.x * 2., 0., 0.),
             ..default()
         });
         cmds.spawn(SpriteBundle {
-            texture: convert.0.clone(),
-            transform: Transform::from_xyz(200., 0., 0.),
+            texture: convert.handle.clone(),
+            transform: Transform::from_xyz(size.x, 0., 0.),
             ..default()
         });
         cmds.spawn(SpriteBundle {
