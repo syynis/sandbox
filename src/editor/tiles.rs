@@ -48,9 +48,31 @@ impl SubTile {
     }
 }
 
+pub struct TileTexture {
+    pub texture: TileLayer,
+    pub size: UVec2,
+    pub filter: Vec<TilePixel>,
+}
+
+impl TileTexture {
+    pub fn get_pixel(&self, pos: UVec2) -> TilePixel {
+        let pos = UVec2::new(
+            pos.x % (self.size.x * TILE_SIZE as u32),
+            pos.y % (self.size.y * TILE_SIZE as u32),
+        );
+        let idx = pos.x + pos.y * TILE_SIZE as u32 * self.size.x;
+        self.texture.colors[idx as usize]
+    }
+}
+
+pub enum MaterialTileKind {
+    Block,
+    Slope,
+}
 pub struct Material {
     pub block: BlockMaterial,
     pub slope: SlopeMaterial,
+    pub texture: Option<TileTexture>,
 }
 
 pub struct BlockMaterial {
@@ -187,11 +209,18 @@ pub struct TileMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextureMeta {
+    pub name: String,
+    pub size: UVec2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterialMeta {
     pub name: String,
     pub name_slope: String,
     pub layer_repeats: Vec<usize>,
     pub layer_repeats_slope: Vec<usize>,
+    pub texture_meta: Option<TextureMeta>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TypeUuid, TypePath)]
@@ -233,7 +262,7 @@ pub fn load_tile_images(
     {
         LoadState::Loaded => true,
         LoadState::Failed => {
-            bevy::log::error!("Failed to load tile asset");
+            bevy::log::error!("Failed to load manifest");
             false
         }
         _ => false,
@@ -254,6 +283,7 @@ pub fn load_tile_images(
             let load = |name: &String| -> Handle<Image> {
                 asset_server.load("tiles/".to_owned() + &manifest.name + "/" + &name + ".png")
             };
+
             match meta {
                 Meta::TileMeta(tile) => {
                     let handle = load(&tile.name);
@@ -262,10 +292,17 @@ pub fn load_tile_images(
                 Meta::MaterialMeta(material) => {
                     let handle = load(&material.name);
                     let handle_slope = load(&material.name_slope);
-                    materials.insert(
-                        material.name.clone(),
-                        (vec![handle, handle_slope], meta.clone()),
-                    );
+
+                    let handle_texture: Option<Handle<Image>> =
+                        material.texture_meta.clone().map(|texture_meta| {
+                            asset_server
+                                .load("textures/".to_owned() + &texture_meta.name.clone() + ".png")
+                        });
+                    let mut images = vec![handle, handle_slope];
+                    if let Some(handle_texture) = handle_texture {
+                        images.push(handle_texture);
+                    }
+                    materials.insert(material.name.clone(), (images, meta.clone()));
                 }
             };
         }
@@ -434,7 +471,22 @@ pub fn load_tiles(
                     sub_tiles,
                     computed_tile_layers: computed_tile_layers_slope,
                 };
-                let material = Material { block, slope };
+
+                let texture = meta.texture_meta.clone().map(|texture_meta| {
+                    let texture = TileLayer::from(&material_images[2].data);
+                    let size = texture_meta.size;
+                    let filter = vec![TilePixel::None, TilePixel::Neutral];
+                    TileTexture {
+                        texture,
+                        size,
+                        filter,
+                    }
+                });
+                let material = Material {
+                    block,
+                    slope,
+                    texture,
+                };
                 materials.insert(name.clone(), material);
             }
             _ => {}
@@ -454,9 +506,9 @@ impl From<&Vec<u8>> for TileLayer {
                     let (r, g, b, a) = (pixel[0], pixel[1], pixel[2], pixel[3]);
                     match (r, g, b, a) {
                         (0, 0, 0, 0) => TilePixel::None,
-                        (255, 0, 0, 255) => TilePixel::Up,
+                        (0, 0, 255, 255) => TilePixel::Up,
                         (0, 255, 0, 255) => TilePixel::Neutral,
-                        (0, 0, 255, 255) => TilePixel::Down,
+                        (255, 0, 0, 255) => TilePixel::Down,
                         _ => unreachable!(),
                     }
                 })

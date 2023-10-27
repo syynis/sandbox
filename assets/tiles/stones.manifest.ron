@@ -34,6 +34,10 @@
             layer_repeats_slope: [
                 1, 9,
             ],
+            texture_meta: Some((
+                name: "banded_concrete",
+                size: (9, 9),
+            )),
         )),
         MaterialMeta((
             name: "stone",
@@ -44,6 +48,7 @@
             layer_repeats_slope: [
                 10,
             ],
+            texture_meta: None,
         )),
     ],
 )

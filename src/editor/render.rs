@@ -9,7 +9,7 @@ use bevy_ecs_tilemap::{
 use leafwing_input_manager::prelude::ActionState;
 
 use crate::{
-    editor::tiles::TilePixel,
+    editor::tiles::{MaterialTileKind, TilePixel},
     level::{
         layer::{Layer, ALL_LAYERS},
         placement::StorageAccess,
@@ -76,12 +76,12 @@ pub fn render_map_images(
 
     // TODO make this work for different sized tiles
     let tile = tiles.0.get("small_stone").unwrap();
-    let material = materials.0.get("stone").unwrap();
+    let material = materials.0.get("frame").unwrap();
     let mut data: Vec<u8> = vec![0; texture_format_size * width * height];
     let mut depth: Vec<u8> = vec![30; width * height];
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
         let map = storage.storage(*layer).unwrap();
-        for sub_layer in 0..10 {
+        for sub_layer in 0..1 {
             for (pos, id, flip) in map.iter().filter_map(|tile_entity| {
                 let Some(tile_entity) = tile_entity else {
                     return None;
@@ -106,13 +106,13 @@ pub fn render_map_images(
                 let offset_x = offset_rounded.x as i32;
                 let offset_y = offset_rounded.y as i32;
                 let offset_idx = offset_x + offset_y * TILE_SIZE as i32 * map_width as i32;
-                let tile_start = (tile_start as i32 + offset_idx) as usize;
+                let tile_start_offset = (tile_start as i32 + offset_idx) as usize;
 
                 (0..TILE_SIZE)
                     .flat_map(move |ty| (0..TILE_SIZE).map(move |tx| (tx, ty)))
                     .for_each(|(tx, ty)| {
                         let rpos = tx + ty * TILE_SIZE;
-                        let wpos = tile_start + tx + ty * TILE_SIZE * map_width;
+                        let wpos = tile_start_offset + tx + ty * TILE_SIZE * map_width;
                         let wpos_texture = wpos * texture_format_size;
                         let layer_idx = (sub_layer + l * 10) as u8;
                         // dont overdraw
@@ -177,6 +177,13 @@ pub fn render_map_images(
                             TileKind::Pole(_) => TilePixel::Neutral,
                             TileKind::Platform => TilePixel::Neutral,
                         };
+
+                        let tpos = tile_start + tx + ty * TILE_SIZE * map_width;
+                        let texture_pos = UVec2::new((tpos % width) as u32, (tpos / width) as u32);
+                        let dir = material
+                            .texture
+                            .as_ref()
+                            .map_or(dir, |texture| texture.get_pixel(texture_pos));
 
                         // draw to the depth buffer unless pixel is transparent
                         if !matches!(dir, TilePixel::None) {
