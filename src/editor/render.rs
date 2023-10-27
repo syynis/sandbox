@@ -81,7 +81,7 @@ pub fn render_map_images(
     let mut depth: Vec<u8> = vec![30; width * height];
     for (l, layer) in ALL_LAYERS.iter().enumerate() {
         let map = storage.storage(*layer).unwrap();
-        for sub_layer in 0..1 {
+        for sub_layer in 0..10 {
             for (pos, id, flip) in map.iter().filter_map(|tile_entity| {
                 let Some(tile_entity) = tile_entity else {
                     return None;
@@ -180,10 +180,14 @@ pub fn render_map_images(
 
                         let tpos = tile_start + tx + ty * TILE_SIZE * map_width;
                         let texture_pos = UVec2::new((tpos % width) as u32, (tpos / width) as u32);
-                        let dir = material
-                            .texture
-                            .as_ref()
-                            .map_or(dir, |texture| texture.get_pixel(texture_pos));
+                        let dir = material.texture.as_ref().map_or(dir, |texture| {
+                            if texture.filter.contains(&dir) && texture.layers.contains(&sub_layer)
+                            {
+                                texture.get_pixel(texture_pos)
+                            } else {
+                                dir
+                            }
+                        });
 
                         // draw to the depth buffer unless pixel is transparent
                         if !matches!(dir, TilePixel::None) {

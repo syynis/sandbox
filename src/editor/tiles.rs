@@ -11,7 +11,7 @@ pub const TILE_SIZE: usize = 20;
 pub const HALF_TILE_SIZE: usize = TILE_SIZE / 2;
 pub const PIXEL_SIZE: usize = 4;
 
-#[derive(Default, Reflect, Copy, Clone)]
+#[derive(Default, Reflect, Copy, Clone, PartialEq)]
 pub enum TilePixel {
     #[default]
     Up = 0,
@@ -52,6 +52,7 @@ pub struct TileTexture {
     pub texture: TileLayer,
     pub size: UVec2,
     pub filter: Vec<TilePixel>,
+    pub layers: Vec<usize>,
 }
 
 impl TileTexture {
@@ -212,6 +213,7 @@ pub struct TileMeta {
 pub struct TextureMeta {
     pub name: String,
     pub size: UVec2,
+    pub layers: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -475,11 +477,13 @@ pub fn load_tiles(
                 let texture = meta.texture_meta.clone().map(|texture_meta| {
                     let texture = TileLayer::from(&material_images[2].data);
                     let size = texture_meta.size;
+                    let layers = texture_meta.layers;
                     let filter = vec![TilePixel::None, TilePixel::Neutral];
                     TileTexture {
                         texture,
                         size,
                         filter,
+                        layers,
                     }
                 });
                 let material = Material {

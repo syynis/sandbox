@@ -35,8 +35,9 @@
                 1, 9,
             ],
             texture_meta: Some((
-                name: "banded_concrete",
-                size: (9, 9),
+                name: "cliff",
+                size: (45, 45),
+                layers: [0,],
             )),
         )),
         MaterialMeta((
