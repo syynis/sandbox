@@ -9,7 +9,7 @@ use bevy_ecs_tilemap::{
 use leafwing_input_manager::prelude::ActionState;
 
 use crate::{
-    editor::tiles::{MaterialTileKind, TilePixel},
+    editor::tiles::TilePixel,
     level::{
         layer::{Layer, ALL_LAYERS},
         placement::StorageAccess,

@@ -8,5 +8,6 @@ pub mod level;
 pub mod lifetime;
 pub mod nono;
 pub mod phys;
+pub mod sokoban;
 pub mod ui;
 pub mod util;

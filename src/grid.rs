@@ -4,20 +4,20 @@ use std::ops::{Index, IndexMut};
 #[derive(Debug, Clone)]
 pub struct Grid<T> {
     cells: Vec<T>,
-    size: UVec2, // TODO: use u32
+    size: IVec2, // TODO: use u32
 }
 
 impl<T> Grid<T> {
-    pub fn from_raw(size: UVec2, raw: impl Into<Vec<T>>) -> Self {
+    pub fn from_raw(size: IVec2, raw: impl Into<Vec<T>>) -> Self {
         let cells = raw.into();
 
         Self { cells, size }
     }
 
-    pub fn populate_from(size: UVec2, mut f: impl FnMut(UVec2) -> T) -> Self {
+    pub fn populate_from(size: IVec2, mut f: impl FnMut(IVec2) -> T) -> Self {
         Self {
             cells: (0..size.y)
-                .flat_map(|y| (0..size.x).map(move |x| UVec2::new(x, y)))
+                .flat_map(|y| (0..size.x).map(move |x| IVec2::new(x, y)))
                 .map(&mut f)
                 .collect(),
 
@@ -25,7 +25,7 @@ impl<T> Grid<T> {
         }
     }
 
-    pub fn new(size: UVec2, default_cell: T) -> Self
+    pub fn new(size: IVec2, default_cell: T) -> Self
     where
         T: Clone,
     {
@@ -36,7 +36,7 @@ impl<T> Grid<T> {
         }
     }
 
-    fn idx(&self, pos: UVec2) -> Option<usize> {
+    fn idx(&self, pos: IVec2) -> Option<usize> {
         if pos.x < self.size.x && pos.y < self.size.y {
             Some((pos.y * self.size.x + pos.x) as usize)
         } else {
@@ -44,50 +44,50 @@ impl<T> Grid<T> {
         }
     }
 
-    pub fn size(&self) -> UVec2 {
+    pub fn size(&self) -> IVec2 {
         self.size
     }
 
-    pub fn get(&self, pos: UVec2) -> Option<&T> {
+    pub fn get(&self, pos: IVec2) -> Option<&T> {
         self.cells.get(self.idx(pos)?)
     }
 
-    pub fn get_mut(&mut self, pos: UVec2) -> Option<&mut T> {
+    pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
         let idx = self.idx(pos)?;
 
         self.cells.get_mut(idx)
     }
 
-    pub fn set(&mut self, pos: UVec2, cell: T) -> Option<T> {
+    pub fn set(&mut self, pos: IVec2, cell: T) -> Option<T> {
         let idx = self.idx(pos)?;
 
         self.cells.get_mut(idx).map(|c| core::mem::replace(c, cell))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (UVec2, &T)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (IVec2, &T)> + '_ {
         let w = self.size.x;
 
         self.cells
             .iter()
             .enumerate()
-            .map(move |(i, cell)| (UVec2::new(i as u32 % w, i as u32 / w), cell))
+            .map(move |(i, cell)| (IVec2::new(i as i32 % w, i as i32 / w), cell))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (UVec2, &mut T)> + '_ {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (IVec2, &mut T)> + '_ {
         let w = self.size.x;
 
         self.cells
             .iter_mut()
             .enumerate()
-            .map(move |(i, cell)| (UVec2::new(i as u32 % w, i as u32 / w), cell))
+            .map(move |(i, cell)| (IVec2::new(i as i32 % w, i as i32 / w), cell))
     }
 
-    pub fn iter_area(&self, pos: UVec2, size: UVec2) -> impl Iterator<Item = (UVec2, &T)> + '_ {
+    pub fn iter_area(&self, pos: IVec2, size: IVec2) -> impl Iterator<Item = (IVec2, &T)> + '_ {
         (0..size.x).flat_map(move |x| {
             (0..size.y).flat_map(move |y| {
                 Some((
-                    pos + UVec2::new(x, y),
-                    &self.cells[self.idx(pos + UVec2::new(x, y))?],
+                    pos + IVec2::new(x, y),
+                    &self.cells[self.idx(pos + IVec2::new(x, y))?],
                 ))
             })
         })
@@ -98,10 +98,10 @@ impl<T> Grid<T> {
     }
 }
 
-impl<T> Index<UVec2> for Grid<T> {
+impl<T> Index<IVec2> for Grid<T> {
     type Output = T;
 
-    fn index(&self, index: UVec2) -> &Self::Output {
+    fn index(&self, index: IVec2) -> &Self::Output {
         self.get(index).unwrap_or_else(|| {
             panic!(
                 "Attempted to index grid of size {:?} with index {:?}",
@@ -112,8 +112,8 @@ impl<T> Index<UVec2> for Grid<T> {
     }
 }
 
-impl<T> IndexMut<UVec2> for Grid<T> {
-    fn index_mut(&mut self, index: UVec2) -> &mut Self::Output {
+impl<T> IndexMut<IVec2> for Grid<T> {
+    fn index_mut(&mut self, index: IVec2) -> &mut Self::Output {
         let size = self.size();
 
         self.get_mut(index).unwrap_or_else(|| {
