@@ -1,10 +1,11 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_ecs_tilemap::tiles::TilePos;
+use leafwing_input_manager::prelude::*;
 
 use crate::{grid::Grid, level::tpos_wpos};
 
 use self::{
-    history::{History, HistoryPlugin},
+    history::{HandleHistoryEvents, History, HistoryEvent, HistoryPlugin},
     player::PlayerPlugin,
 };
 
@@ -15,10 +16,53 @@ pub struct SokobanPlugin;
 
 impl Plugin for SokobanPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((PlayerPlugin, HistoryPlugin::<Pos>::default()));
-        app.register_type::<Pos>();
-        app.register_type::<History<Pos>>();
-        app.add_systems(PostUpdate, copy_pos_to_transform);
+        app.add_plugins((
+            PlayerPlugin,
+            HistoryPlugin::<Pos>::default(),
+            InputManagerPlugin::<SokobanActions>::default(),
+        ))
+        .register_type::<Pos>().register_type::<History<Pos>>()
+        .add_event::<SokobanEvent>()
+        .add_systems(Startup, setup)
+        .add_systems(Update, handle_sokoban_actions.before(HandleHistoryEvents))
+        .add_systems(Update, handle_sokoban_events.run_if(on_event::<SokobanEvent>()))
+        .add_systems(PostUpdate, copy_pos_to_transform);
+    }
+}
+
+#[derive(Actionlike, Clone, Copy, Hash, Debug, PartialEq, Eq, Reflect)]
+pub enum SokobanActions {
+    Rewind,
+}
+
+fn sokoban_actions() -> InputMap<SokobanActions> {
+    use SokobanActions::*;
+    let mut input_map = InputMap::default();
+
+    input_map.insert(KeyCode::U, Rewind);
+
+    input_map
+}
+
+fn setup(mut cmds: Commands) {
+    cmds.spawn((
+        (InputManagerBundle::<SokobanActions> {
+            input_map: sokoban_actions(),
+            ..default()
+        },),
+        Name::new("SokobanActions"),
+    ));
+}
+
+fn handle_sokoban_actions(
+    actions: Query<&ActionState<SokobanActions>>,
+    mut history_events: EventWriter<HistoryEvent>,
+) {
+    let Some(actions) = actions.get_single().ok() else {
+        return;
+    };
+    if actions.just_pressed(SokobanActions::Rewind) {
+        history_events.send(HistoryEvent::Rewind)
     }
 }
 
@@ -32,40 +76,52 @@ pub fn copy_pos_to_transform(mut query: Query<(&Pos, &mut Transform)>) {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum Direction {
+pub enum Dir {
     Up,
     Right,
     Down,
     Left,
 }
 
-impl From<Direction> for IVec2 {
-    fn from(direction: Direction) -> IVec2 {
+impl From<Dir> for IVec2 {
+    fn from(direction: Dir) -> IVec2 {
         match direction {
-            Direction::Up => IVec2::Y,
-            Direction::Left => IVec2::new(-1, 0),
-            Direction::Down => IVec2::new(0, -1),
-            Direction::Right => IVec2::X,
+            Dir::Up => IVec2::Y,
+            Dir::Left => IVec2::new(-1, 0),
+            Dir::Down => IVec2::new(0, -1),
+            Dir::Right => IVec2::X,
         }
     }
 }
 
 #[derive(Debug, Clone, Event)]
-pub enum SokobanCommand {
-    Move {
-        entity: Entity,
-        direction: Direction,
-    },
+pub enum SokobanEvent {
+    Move { entity: Entity, direction: Dir },
 }
 
 #[derive(SystemParam)]
-pub struct SokobanCommands<'w> {
-    writer: EventWriter<'w, SokobanCommand>,
+pub struct SokobanEvents<'w> {
+    writer: EventWriter<'w, SokobanEvent>,
 }
 
-impl<'w> SokobanCommands<'w> {
-    pub fn move_block(&mut self, entity: Entity, direction: Direction) {
-        self.writer.send(SokobanCommand::Move { entity, direction });
+impl<'w> SokobanEvents<'w> {
+    pub fn move_entity(&mut self, entity: Entity, direction: Dir) {
+        self.writer.send(SokobanEvent::Move { entity, direction });
+    }
+}
+
+fn handle_sokoban_events(
+    mut sokoban_entities: Query<(Entity, &mut Pos, &SokobanBlock)>,
+    mut sokoban_events: EventReader<SokobanEvent>,
+) {
+    for ev in sokoban_events.iter() {
+        let SokobanEvent::Move { entity, direction } = ev;
+
+        if let Some((entity, mut pos, block)) = sokoban_entities.get_mut(*entity).ok() {
+            let dir = IVec2::from(*direction);
+            pos.x = pos.x.saturating_add_signed(dir.x);
+            pos.y = pos.y.saturating_add_signed(dir.y);
+        }
     }
 }
 
@@ -81,7 +137,7 @@ pub struct Pusher;
 #[derive(Debug, Clone)]
 pub struct PushEvent {
     pub pusher: Entity,
-    pub direction: Direction,
+    pub direction: Dir,
     pub pushed: Vec<Entity>,
 }
 
@@ -91,7 +147,7 @@ pub struct CollisionMap {
 }
 
 impl CollisionMap {
-    fn push_collision_map_entry(&mut self, pusher_coords: IVec2, direction: Direction) {
+    fn push_collision_map_entry(&mut self, pusher_coords: IVec2, direction: Dir) {
         let Some(e) = self.map.get_mut(pusher_coords) else {
             return;
         };

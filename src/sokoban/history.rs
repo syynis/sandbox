@@ -11,7 +11,7 @@ impl<C: Component + Clone> Plugin for HistoryPlugin<C> {
     fn build(&self, app: &mut App) {
         app.add_event::<HistoryEvent>();
         app.add_systems(
-            PostUpdate,
+            Update,
             handle_history_commands::<C>.in_set(HandleHistoryEvents),
         );
     }

@@ -6,24 +6,16 @@ use crate::level::tpos_wpos;
 
 use super::{
     history::{HandleHistoryEvents, History, HistoryEvent},
-    Pos,
+    Dir, Pos, SokobanBlock, SokobanEvents,
 };
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(InputManagerPlugin::<PlayerActions>::default());
-        app.add_systems(Startup, setup);
-        app.add_systems(
-            Update,
-            (
-                handle_player_actions,
-                handle_history
-                    .before(HandleHistoryEvents)
-                    .after(handle_player_actions),
-            ),
-        );
+        app.add_plugins(InputManagerPlugin::<PlayerActions>::default())
+            .add_systems(Startup, setup)
+            .add_systems(Update, handle_player_actions.before(HandleHistoryEvents));
     }
 }
 
@@ -51,6 +43,7 @@ fn setup(mut cmds: Commands) {
         Player,
         Pos::default(),
         History::<Pos>::default(),
+        SokobanBlock::Dynamic,
         SpriteBundle {
             sprite: Sprite {
                 color: Color::WHITE,
@@ -76,10 +69,12 @@ fn player_actions() -> InputMap<PlayerActions> {
 }
 
 pub fn handle_player_actions(
-    mut player_q: Query<&mut Pos, With<Player>>,
+    mut player_q: Query<Entity, With<Player>>,
     player_actions: Query<&ActionState<PlayerActions>>,
+    mut history_events: EventWriter<HistoryEvent>,
+    mut sokoban: SokobanEvents,
 ) {
-    let Some(mut player_pos) = player_q.get_single_mut().ok() else {
+    let Some(player) = player_q.get_single_mut().ok() else {
         return;
     };
 
@@ -87,22 +82,15 @@ pub fn handle_player_actions(
         return;
     };
 
-    player_actions
-        .get_just_pressed()
-        .iter()
-        .for_each(|action| match action {
-            PlayerActions::Up => player_pos.y += 1,
-            PlayerActions::Right => player_pos.x += 1,
-            PlayerActions::Down => player_pos.y = player_pos.y.saturating_sub(1),
-            PlayerActions::Left => player_pos.x = player_pos.x.saturating_sub(1),
-        });
-}
-
-pub fn handle_history(
-    mut history_events: EventWriter<HistoryEvent>,
-    mut player_q: Query<&Pos, (Changed<Pos>, With<Player>)>,
-) {
-    if player_q.get_single_mut().is_ok() {
-        history_events.send(HistoryEvent::Record);
-    };
+    player_actions.get_just_pressed().iter().for_each(|action| {
+        match action {
+            PlayerActions::Up => sokoban.move_entity(player, Dir::Up),
+            PlayerActions::Right => sokoban.move_entity(player, Dir::Right),
+            PlayerActions::Down => sokoban.move_entity(player, Dir::Down),
+            PlayerActions::Left => sokoban.move_entity(player, Dir::Left),
+        };
+    });
+    if player_actions.get_just_pressed().len() > 0 {
+        history_events.send(HistoryEvent::Record)
+    }
 }
