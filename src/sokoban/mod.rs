@@ -21,11 +21,15 @@ impl Plugin for SokobanPlugin {
             HistoryPlugin::<Pos>::default(),
             InputManagerPlugin::<SokobanActions>::default(),
         ))
-        .register_type::<Pos>().register_type::<History<Pos>>()
+        .register_type::<Pos>()
+        .register_type::<History<Pos>>()
         .add_event::<SokobanEvent>()
         .add_systems(Startup, setup)
         .add_systems(Update, handle_sokoban_actions.before(HandleHistoryEvents))
-        .add_systems(Update, handle_sokoban_events.run_if(on_event::<SokobanEvent>()))
+        .add_systems(
+            Update,
+            handle_sokoban_events.run_if(on_event::<SokobanEvent>()),
+        )
         .add_systems(PostUpdate, copy_pos_to_transform);
     }
 }
