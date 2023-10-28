@@ -1,6 +1,35 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy_ecs_tilemap::tiles::TilePos;
 
-use crate::grid::Grid;
+use crate::{grid::Grid, level::tpos_wpos};
+
+use self::{
+    history::{History, HistoryPlugin},
+    player::PlayerPlugin,
+};
+
+pub mod history;
+pub mod player;
+
+pub struct SokobanPlugin;
+
+impl Plugin for SokobanPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((PlayerPlugin, HistoryPlugin::<Pos>::default()));
+        app.register_type::<Pos>();
+        app.register_type::<History<Pos>>();
+        app.add_systems(PostUpdate, copy_pos_to_transform);
+    }
+}
+
+#[derive(Component, Default, Clone, Copy, Debug, PartialEq, Eq, Deref, DerefMut, Reflect)]
+pub struct Pos(pub TilePos);
+
+pub fn copy_pos_to_transform(mut query: Query<(&Pos, &mut Transform)>) {
+    for (pos, mut transform) in query.iter_mut() {
+        transform.translation = tpos_wpos(pos).extend(transform.translation.z);
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub enum Direction {
