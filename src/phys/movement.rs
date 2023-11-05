@@ -1,7 +1,10 @@
 use std::time::Duration;
 
 use bevy::{prelude::*, time::Stopwatch, utils::hashbrown::HashMap};
-use bevy_xpbd_2d::{math::Vector, prelude::*};
+use bevy_xpbd_2d::{
+    math::{Scalar, Vector},
+    prelude::*,
+};
 use leafwing_input_manager::prelude::*;
 
 use crate::entity::player::Player;
@@ -72,6 +75,12 @@ pub enum ActionKind {
     Jump,
 }
 
+#[derive(Event)]
+pub enum MovementAction {
+    Move(Scalar),
+    Jump,
+}
+
 #[derive(Bundle)]
 pub struct Control {
     controllable: Controllable,
@@ -95,6 +104,49 @@ impl Default for Control {
                 ..default()
             },
         }
+    }
+}
+
+#[derive(Component)]
+pub struct MovementProperties {
+    pub acceleration: Scalar,
+    pub damping: Scalar,
+    pub jump_impulse: Scalar,
+}
+
+impl MovementProperties {
+    pub fn new(acceleration: Scalar, damping: Scalar, jump_impulse: Scalar) -> Self {
+        Self {
+            acceleration,
+            damping,
+            jump_impulse,
+        }
+    }
+}
+
+impl Default for MovementProperties {
+    fn default() -> Self {
+        Self::new(30., 0.9, 7.)
+    }
+}
+
+fn keyboard_input(
+    mut movement_events: EventWriter<MovementAction>,
+    action_state_query: Query<&ActionState<ActionKind>>,
+) {
+    let Ok(action_state) = action_state_query.get_single() else {
+        return;
+    };
+    let left = action_state.pressed(ActionKind::Left);
+    let right = action_state.pressed(ActionKind::Right);
+    let direction = (right as i8 - left as i8) as Scalar;
+
+    if direction != 0. {
+        movement_events.send(MovementAction::Move(direction));
+    }
+
+    if action_state.just_pressed(ActionKind::Jump) {
+        movement_events.send(MovementAction::Jump);
     }
 }
 
